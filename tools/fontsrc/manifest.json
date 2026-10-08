@@ -1,0 +1,127 @@
+{
+  "schema": "rockey/fontsrc-manifest/1",
+  "cache": "tools/fontsrc/cache",
+  "license_dir": "tools/fontsrc/licenses",
+  "notes": [
+    "字体二进制不随仓库提交，由 tools/fetch_fonts.py 按固定 URL + sha256 拉取到 cache/。",
+    "OFL-1.1 许可证全文随仓库保存在 tools/fontsrc/licenses/。",
+    "profile 只声明角色到 (字体, 像素) 的映射；实际字形由 tools/genfont.py 决定。",
+    "full 档位把所选字体全部码位纳入，受 full_budget_glyphs 与分区预算约束。"
+  ],
+  "releases": {
+    "fusion-pixel-font": {
+      "version": "2026.09.25",
+      "homepage": "https://github.com/TakWolf/fusion-pixel-font",
+      "license": "OFL-1.1",
+      "archives": {
+        "proportional": {
+          "url": "https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.09.25/fusion-pixel-font-12px-proportional-otf-v2026.09.25.zip",
+          "sha256": "b0138dfdb5b9fae0159b1e996710782aaf7f47d2b2db26ddc13cd066f6dbb14b"
+        },
+        "monospaced": {
+          "url": "https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.09.25/fusion-pixel-font-12px-monospaced-otf-v2026.09.25.zip",
+          "sha256": "a018150df0b253cc1872b21ccec512a15c6f4110d398a9f6eda0a28f3cfb0d0f"
+        }
+      }
+    }
+  },
+  "fonts": {
+    "fp-prop-latin": {
+      "file": "fusion-pixel-12px-proportional-latin.otf",
+      "bytes": 4938652,
+      "sha256": "9847709e8e09e9b8b060a96c3df61a16509c65910dbbcb8ca14eab923641be8f",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    },
+    "fp-prop-zh-Hans": {
+      "file": "fusion-pixel-12px-proportional-zh_hans.otf",
+      "bytes": 4955388,
+      "sha256": "e84b6d1ab8f2e25084761eb61c88b373bf1fa0b0c5e9b559d5b1d90e4d658c86",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    },
+    "fp-prop-zh-Hant": {
+      "file": "fusion-pixel-12px-proportional-zh_hant.otf",
+      "bytes": 4975024,
+      "sha256": "37bcf09fbcd112dd1889d1229b90854c46be599b4dd48b3526ff076dcade6552",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    },
+    "fp-prop-zh-Hk": {
+      "file": "fusion-pixel-12px-proportional-zh_hk.otf",
+      "bytes": 4967736,
+      "sha256": "10253a8b5705293d6443c3ea5d9978ce6742d6c5debb925213feceb8b2048945",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    },
+    "fp-prop-ja": {
+      "file": "fusion-pixel-12px-proportional-ja.otf",
+      "bytes": 4960496,
+      "sha256": "2ee243b369308c0adcb322023044e47d204c33a4a76e39ea236dfb3ab232a032",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    },
+    "fp-mono-latin": {
+      "file": "fusion-pixel-12px-monospaced-latin.otf",
+      "bytes": 4928652,
+      "sha256": "d48931d0f47d1ffaba5d6965e2de6a65c0683948faba640d8f2d393a9577d58b",
+      "license": "OFL-1.1",
+      "release": "fusion-pixel-font@2026.09.25"
+    }
+  },
+  "profiles": {
+    "fusion-pixel": {
+      "description": "Fusion Pixel 12px 像素字体：320x240 小屏上正文 12px 一行可容 26 个汉字，标题与地址用 2x 放大。",
+      "full_budget_glyphs": 2400,
+      "roles": {
+        "title": {
+          "font": "fp-prop-latin",
+          "size": 24
+        },
+        "body": {
+          "font": "fp-prop-latin",
+          "size": 12
+        },
+        "small": {
+          "font": "fp-prop-latin",
+          "size": 12
+        },
+        "mono_small": {
+          "font": "fp-mono-latin",
+          "size": 12
+        },
+        "mono_large": {
+          "font": "fp-mono-latin",
+          "size": 24
+        }
+      },
+      "per_lang": {
+        "en": {
+          "replace": {
+            "fp-prop-latin": "fp-prop-latin"
+          }
+        },
+        "zh-Hans": {
+          "replace": {
+            "fp-prop-latin": "fp-prop-zh-Hans"
+          }
+        },
+        "zh-Hant": {
+          "replace": {
+            "fp-prop-latin": "fp-prop-zh-Hant"
+          }
+        },
+        "zh-Hk": {
+          "replace": {
+            "fp-prop-latin": "fp-prop-zh-Hk"
+          }
+        },
+        "ja": {
+          "replace": {
+            "fp-prop-latin": "fp-prop-ja"
+          }
+        }
+      }
+    }
+  }
+}

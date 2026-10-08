@@ -1,0 +1,26 @@
+# Rockey 分区表 v1
+#
+# 目的：让密钥分区与固件升级解耦 —— OTA / 语言切换 / 重新烧写都不会覆盖
+# 钱包密钥、失败计数与迁移记录。首次刷入本表可能需要一次整片擦除，之后
+# 所有升级都只写 app0/app1。
+#
+# 4MB flash 布局：
+#   0x009000  nvs      20 KB   ESP-IDF 库使用
+#   0x00E000  otadata   8 KB   OTA 选择
+#   0x010000  app0    1664 KB
+#   0x1B0000  app1    1664 KB
+#   0x350000  rockey   704 KB   Rockey 私有分区（LittleFS）
+#
+# rockey 分区内容：
+#   /vault/key.bin        单业务私钥的设备封装（版本化 AEAD）
+#   /vault/meta.bin       生成号、公钥、PIN 参数版本
+#   /vault/state.bin      PIN 失败计数（单调，防拔线重置）
+#   /vault/backup.bin     设备外恢复备份（一次性导出，需用户另行保存）
+#   /vault/migration.bin  迁移事务记录（公开进度，不含秘密）
+#   /docs/*               长文阅读内容（只读缓存，非信任来源）
+
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0x1A0000,
+app1,     app,  ota_1,   0x1B0000, 0x1A0000,
+rockey,   data, spiffs,  0x350000, 0xB0000,
