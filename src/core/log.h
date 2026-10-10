@@ -5,6 +5,8 @@
 //  2. 不提供"打印任意缓冲区"的接口；只提供打印长度与前缀指纹的接口。
 //  3. 任何 key/pin/derived/plaintext 字段的日志调用一律被 ifdef 掉，
 //     由 scripts/check_release_build.py 静态检查。
+//  4. 日志口与协议口必须分开：帧走 USB 转串口 Serial，日志走 UART2。
+//     共用一条串口会把日志行插进帧流，主机表现为随机重同步。
 #ifndef ROCKEY_CORE_LOG_H
 #define ROCKEY_CORE_LOG_H
 
@@ -37,7 +39,6 @@ class Log {
   static void Write(LogLevel level, const char* tag, const char* fmt, ...);
   static bool Enabled(LogLevel level);
   static uint32_t dropped() { return dropped_; }
-  static void PrintBanner();
 
  private:
   static uint32_t dropped_;

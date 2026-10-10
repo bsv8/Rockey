@@ -1,6 +1,6 @@
 // 帧层：有界解析、分片重组、序号、重放与序号检查。
 //
-// 冻结帧格式（docs/冻结/协议规范.md）：
+// 冻结帧格式（docs/冻结/线缆格式.md §2）：
 //   0  magic0 = 0xA5
 //   1  magic1 = 0x5A
 //   2  version(1) = 1
@@ -30,6 +30,8 @@ enum class FrameType : uint8_t {
   kHelloAck = 0x02,     // 未加密：设备 -> 主机
   kPairConfirm = 0x03,  // 已加密
   kPairOk = 0x04,       // 已加密
+  kProvePossession = 0x05,  // 已加密：主机发 challenge，设备用业务 Key 签名
+  kProveOk = 0x06,      // 已加密：持有权证明结果，通过后建立会话
   kRequest = 0x10,      // 已加密
   kResponse = 0x11,     // 已加密
   kEvent = 0x12,        // 已加密，设备 -> 主机
@@ -62,13 +64,17 @@ bool EncodeFrame(uint8_t* out, size_t outCap, FrameType type, uint8_t flags, uin
 class FrameReader {
  public:
   void Reset();
-  // 喂入一段字节；解析出一条完整帧时返回 true，*out.payload 指向内部缓冲
-  bool Feed(const uint8_t* data, size_t len, Frame* out);
+  // 喂入一段字节；取出一条完整帧时返回 true，*out.payload 指向内部缓冲。
+  // *consumed 报告本次实际吞掉的新字节数，调用方必须把指针前移 consumed，
+  // 绝不能把同一段输入重复喂进来（否则帧会被重复投递）。
+  // 返回 true 但 *consumed == 0 表示这一条来自缓冲里的残留，尚未消耗新输入。
+  bool Feed(const uint8_t* data, size_t len, Frame* out, size_t* consumed);
   uint32_t dropped() const { return dropped_; }
   uint32_t resyncs() const { return resyncs_; }
 
  private:
   void Flush();
+  bool TakeBuffered(Frame* out);
 
   uint8_t buf_[ROCKEY_MAX_FRAME_PAYLOAD + kFrameHeaderLen + kFrameTrailerLen]{};
   size_t len_ = 0;

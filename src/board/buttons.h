@@ -8,6 +8,7 @@
 #define ROCKEY_BOARD_BUTTONS_H
 
 #include <stdint.h>
+#include "core/rockey_config.h"
 
 namespace rockey {
 
@@ -43,6 +44,13 @@ class Buttons {
   bool GateActive() const;      // 仍处于栅栏状态
   void ClearGateIfSatisfied();
 
+#if defined(ROCKEY_DEV_BUTTON_API)
+  // 注入原始电平，不直接制造批准。去抖、长按、重复、松键栅栏仍执行正式逻辑。
+  bool DevSetLevel(Btn btn, bool down, uint32_t now, uint16_t ttl) {
+    if (static_cast<uint8_t>(btn)>=3 || ttl>4000 || (down && ttl<30)) return false;
+    testDown_[static_cast<int>(btn)]=down; testUntil_[static_cast<int>(btn)]=now+ttl; return true;
+  }
+#endif
   const BtnConfig& config() const { return cfg_; }
 
  private:
@@ -59,6 +67,10 @@ class Buttons {
     BtnEvent event = BtnEvent::kNone;
   };
 
+#if defined(ROCKEY_DEV_BUTTON_API)
+  bool testDown_[3]{};
+  uint32_t testUntil_[3]{};
+#endif
   BtnConfig cfg_{};
   Slot slots_[3]{};
   bool gate_ = false;

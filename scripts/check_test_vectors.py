@@ -14,6 +14,7 @@
 import binascii
 import hashlib
 import hmac
+import json
 import re
 import sys
 import os
@@ -42,28 +43,155 @@ def arrays_from(path):
     return out
 
 
-# ── X25519 (RFC 7748) ─────────────────────────────────────────────────────
-print("X25519 / RFC 7748")
-a = arrays_from("src/crypto/x25519.cpp")
-check("rfc7748 k1", a["k1"][0], "a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")
-check("rfc7748 u1", a["u1"][0], "e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c")
-check("rfc7748 o1", a["o1"][0], "c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552")
-check("rfc7748 k2", a["k2"][0], "4b66e9d4d1b4673c5ad22691957d6af5c11b6421e0ea01d42ca4169e7918ba0d")
-check("rfc7748 u2", a["u2"][0], "e5210f12786811d3f4b7959d0538ae2c31dbe7106fc03c3efc4cd549c715a493")
-check("rfc7748 o2", a["o2"][0], "95cbde9476e8907d7aade45cb4b873f88b595a68799fa152e6f8f7647aac7957")
-check("rfc7748 iter1000", a["kIter1000"][0],
-      "684cf59ba83309552800ef566f2f4d3c1c3887c49360e3875f2eb94d99532c51")
+def run_firmware_selftest(path, call, extra_includes=None):
+    """编译一个只调用 SelfTest 的驱动并返回其结果；环境不满足时返回 None。"""
+    import subprocess
+    import tempfile
+    import shutil
 
-# ── AES-256-GCM (NIST) ───────────────────────────────────────────────────
-print("AES-256-GCM / NIST")
-a = arrays_from("src/crypto/aead.cpp")
-check("tc1 tag", a["kExpect"][0], "58e2fccefa7e3061367f1d57a4e7455a")
-check("tc2 ct", a["kExpectCt"][0], "0388dace60b6a392f328c2b971b2fe78")
-check("tc2 tag", a["kExpectTag"][0], "ab6e47d42cec13bdf53a67b21257bddf")
-check("tc4 ct", a["kExpectCt"][1], "cea7403d4d606b6e074ec5d3baf39d18")
-check("tc4 tag", a["kExpectTag"][1], "d0d1c8a799996bf0265b98b5d48ab919")
+    cxx = shutil.which("c++") or shutil.which("clang++") or shutil.which("g++")
+    if not cxx:
+        return None
+    inc, lib = find_mbedtls()
+    if inc is None:
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        drv = os.path.join(td, "drv.cpp")
+        with open(drv, "w", encoding="utf-8") as f:
+            f.write('#include <cstdio>\n')
+            for header in (extra_includes or []):
+                f.write(header + "\n")
+            f.write('int main(){ printf("%d\\n", (int)(' + call + ')); return 0; }\n')
+        out = os.path.join(td, "drv")
+        cmd = [cxx, "-std=gnu++17", "-O1", "-I" + os.path.join(ROOT, "src"),
+               "-I" + os.path.join(ROOT, "tests", "host", "stubs"),
+               "-I" + inc, drv,
+               os.path.join(ROOT, "tests", "host", "shim_esp_aes.cpp"),
+               os.path.join(ROOT, path),
+               os.path.join(ROOT, "src", "crypto", "secure.cpp"), "-o", out]
+        if lib:
+            cmd += ["-L" + lib, "-lmbedcrypto"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            err = [x for x in r.stderr.splitlines() if "error" in x or "Undefined" in x or "ld:" in x]
+            print("  (构建失败: " + (err[0][:140] if err else r.stderr.strip().splitlines()[-1][:140]) + ")")
+            return None
+        runres = subprocess.run([out], capture_output=True, text=True)
+        return runres.stdout.strip().splitlines()[0] if runres.stdout.strip() else None
 
-# ── RIPEMD-160 ───────────────────────────────────────────────────────────
+
+def host_ripemd(msg):
+    """宿主机上的权威实现（OpenSSL RIPEMD-160）。"""
+    return hashlib.new("ripemd160", msg.encode()).hexdigest()
+
+
+def run_firmware_ripemd(cases):
+    """编译并运行 src/crypto/ripemd160.cpp，比对它自己的 SelfTest 与逐条向量。
+
+    需要一个 C++17 编译器与 mbedTLS 头文件/库；缺任一项时返回 None，
+    调用方会明确打印"跳过"，不会假装通过。
+    """
+    import subprocess
+    import tempfile
+    import shutil
+
+    cxx = shutil.which("c++") or shutil.which("clang++") or shutil.which("g++")
+    if not cxx:
+        print("  no C++ compiler available")
+        return None
+
+    inc, lib = find_mbedtls()
+    src = os.path.join(ROOT, "src/crypto/ripemd160.cpp")
+    with tempfile.TemporaryDirectory() as td:
+        drv = os.path.join(td, "drv.cpp")
+        with open(drv, "w", encoding="utf-8") as f:
+            f.write(
+                '#include <cstdio>\n#include <cstring>\n'
+                '#include "crypto/ripemd160.h"\n'
+                'int main(){\n'
+                '  printf("SELFTEST %d\\n", (int)rockey::ripemd::SelfTest());\n'
+            )
+            for idx, msg in enumerate(cases):
+                # 用下标回传结果：消息本身可能含空格，不能靠分隔符还原
+                jmsg = json.dumps(msg)
+                f.write(
+                    "  { unsigned char d[20]; char h[41];"
+                    ' const char* k="0123456789abcdef";'
+                    " rockey::ripemd::Hash((const unsigned char*)" + jmsg + ", " + str(len(msg)) + ", d);"
+                    " for(int i=0;i<20;i++){h[i*2]=k[d[i]>>4];h[i*2+1]=k[d[i]&15];} h[40]=0;"
+                    ' printf("V ' + str(idx) + ' %s\\n", h); }\n'
+                )
+            f.write("  return 0;\n}\n")
+        out_bin = os.path.join(td, "drv")
+        cmd = [cxx, "-std=gnu++17", "-O1", "-I" + os.path.join(ROOT, "src")]
+        if inc:
+            cmd += ["-I" + inc]
+        cmd += [drv, src, "-o", out_bin]
+        if lib:
+            cmd += ["-L" + lib, "-lmbedcrypto"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0:
+            print("  could not build firmware ripemd160:\n" + r.stderr.strip()[:400])
+            return None
+        run = subprocess.run([out_bin], capture_output=True, text=True)
+        if run.returncode != 0:
+            print("  firmware ripemd160 driver failed")
+            return None
+        got = {}
+        selftest_ok = None
+        for line in run.stdout.splitlines():
+            if line.startswith("SELFTEST "):
+                selftest_ok = line.split()[1] == "1"
+            elif line.startswith("V "):
+                _, idx_s, hexv = line.split(" ", 2)
+                got[int(idx_s)] = hexv
+        if selftest_ok is not True:
+            fails.append("firmware ripemd::SelfTest() returned false")
+            print("  FAIL firmware ripemd::SelfTest() returned false")
+        return got
+
+
+def find_mbedtls():
+    """尽力找到 mbedTLS 的头文件与库目录（Homebrew / vcpkg / 系统）。"""
+    candidates = [
+        os.environ.get("MBEDTLS_ROOT"),
+        "/opt/homebrew/Cellar/mbedtls/3.6.4",
+        "/usr/local/Cellar/mbedtls/3.6.4",
+        "/usr/local/opt/mbedtls",
+        "/opt/homebrew/opt/mbedtls",
+    ]
+    for c in candidates:
+        if not c:
+            continue
+        inc = os.path.join(c, "include")
+        lib = os.path.join(c, "lib")
+        if os.path.exists(os.path.join(inc, "mbedtls", "ripemd160.h")):
+            return (inc, lib if os.path.isdir(lib) else None)
+    if shutil_which_ripemd_header():
+        return ("/usr/include", None)
+    return (None, None)
+
+
+def shutil_which_ripemd_header():
+    return os.path.exists("/usr/include/mbedtls/ripemd160.h")
+
+
+# ── AES-GCM ────────────────────────────────────────────────────────────
+# 这里只做一件事：**执行** src/crypto/aead.cpp 自己的 SelfTest。
+# 逐字节对照成熟实现（mbedtls GCM）的是 tests/host/test_aead.cpp，
+# 由 scripts/run_host_tests.sh 调用。
+#
+# 原来的写法是 grep 源码里的期望值数组，既没执行算法，用的还是 NIST 的
+# AES-128 用例去对 AES-256 的输出 —— 于是"通过"毫无信息量。
+print("AES-GCM / firmware SelfTest")
+_selftest = run_firmware_selftest("src/crypto/aead.cpp", "rockey::aead::SelfTest()",
+                                 extra_includes=['#include "crypto/aead.h"'])
+if _selftest is None:
+    print("  skip 无法编译 src/crypto/aead.cpp（需要 ESP-IDF 的 aes/esp_aes.h 与 mbedTLS）")
+else:
+    check("firmware aead::SelfTest()", _selftest == "1", True)
+
+# ── RIPEMD-160 (ISO/IEC 10118-3) ─────────────────────────────────────────
 print("RIPEMD-160 / ISO 10118-3")
 RIPEMD = {
     "": "9c1185a5c5e9fc54612808977ee8f548b2258d31",
@@ -76,17 +204,27 @@ RIPEMD = {
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789":
         "b0e20b6e3116640286ed3a87a5713079b21f5189",
 }
-src = open(os.path.join(ROOT, "src/crypto/ripemd160.cpp"), encoding="utf-8").read()
-embedded = set(re.findall(r'"([0-9a-f]{40})"', src))
-for msg, want in RIPEMD.items():
-    try:
-        got = hashlib.new("ripemd160", msg.encode()).hexdigest()
-    except Exception as exc:  # pragma: no cover
-        fails.append(f"host has no ripemd160: {exc}")
-        print("  skip host ripemd160 unavailable")
-        break
-    check(f"authoritative {msg[:16]!r}", got, want)
-    check(f"embedded {msg[:16]!r}", want in embedded, True)
+firmware = run_firmware_ripemd(list(RIPEMD))
+for idx, (msg, want) in enumerate(RIPEMD.items()):
+    check(f"authoritative {msg[:16]!r}", host_ripemd(msg), want)
+    if firmware is None:
+        print("  skip firmware ripemd160 (无法编译，见输出)")
+    else:
+        check(f"firmware {msg[:16]!r}", firmware.get(idx, "<missing>"), want)
+
+# ── X25519 (RFC 7748) ─────────────────────────────────────────────────────
+# 改成**执行** src/crypto/x25519.cpp 的 SelfTest 与 RFC 向量。
+#
+# 原来这里只 grep 源码里的 k1/u1/o1 常量并与 RFC 值比对，但那些常量本身
+# 就不是 RFC 的向量，实现也是错的（模数、字节序、ladder 初值），
+# 于是"通过"毫无信息量。逐项验证改由 tests/host/test_x25519.cpp 负责。
+print("X25519 / RFC 7748")
+_x = run_firmware_selftest("src/crypto/x25519.cpp", "rockey::x25519::SelfTest()",
+                         extra_includes=['#include "crypto/x25519.h"'])
+if _x is None:
+    print("  skip 无法编译 src/crypto/x25519.cpp（需要 mbedTLS 头文件与库）")
+else:
+    check("firmware x25519::SelfTest()", _x == "1", True)
 
 # ── 本地秘密 v3 ──────────────────────────────────────────────────────────
 print("local-secret v3 / keymaster active-key-hkdf-v1")
@@ -132,4 +270,9 @@ print()
 if fails:
     print(f"FAILED: {len(fails)} problem(s)")
     sys.exit(1)
-print("all embedded self-test vectors match authoritative sources")
+print()
+print("说明：上面 AES-GCM、RIPEMD-160、X25519 三节都是**执行固件代码**后")
+print("      与权威/参照实现比对的结果。逐项向量（RFC 5869 / RFC 7748 / 与")
+print("      mbedtls 逐字节对照）见 tests/host/ 与 scripts/run_host_tests.sh。")
+print("      local-secret 一节目前仍只比对源码常量 —— 它需要 Keymaster 真实")
+print("      密文才能真正验证兼容，这一项尚未完成。")

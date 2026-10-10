@@ -136,14 +136,24 @@ bool ParseP2pkhScript(const uint8_t* script, size_t len, uint8_t hash160Out[20])
   return true;
 }
 
+bool P2pkhAddressFromHash160(const uint8_t hash160[20], char* out, size_t outCap) {
+  if (!hash160 || !out || outCap < 2) return false;
+  uint8_t payload[1 + 20];
+  payload[0] = kP2pkhVersionMainnet;
+  memcpy(payload + 1, hash160, 20);
+  uint8_t checksum[32];
+  digest::Sha256d(payload, sizeof(payload), checksum);
+  uint8_t full[1 + 20 + 4];
+  memcpy(full, payload, sizeof(payload));
+  memcpy(full + sizeof(payload), checksum, 4);
+  secure::Wipe(checksum, sizeof(checksum));
+  return Base58Encode(full, sizeof(full), out, outCap) > 0;
+}
+
 bool P2pkhAddress(const uint8_t pub33[33], char* out, size_t outCap) {
   uint8_t h[20];
   if (!Hash160(pub33, 33, h)) return false;
-  uint8_t payload[25];
-  payload[0] = kP2pkhVersionMainnet;
-  memcpy(payload + 1, h, 20);
-  digest::Sha256d(payload, 21, payload + 21);
-  return Base58Encode(payload, 25, out, outCap) > 0;
+  return P2pkhAddressFromHash160(h, out, outCap);
 }
 
 TxParseError ParseTx(const uint8_t* raw, size_t len, ParsedTx* out) {
@@ -172,7 +182,7 @@ TxParseError ParseTx(const uint8_t* raw, size_t len, ParsedTx* out) {
     if (sl > 1000) return TxParseError::kScriptTooLong;
     pos += sl;
     if (pos + 4 > len) return TxParseError::kMalformed;
-    out->sequence[i] = raw[pos + 3];
+    out->sequence[i] = ReadU32LE(raw + pos);
     pos += 4;
   }
 
@@ -203,8 +213,59 @@ TxParseError ParseTx(const uint8_t* raw, size_t len, ParsedTx* out) {
 
 namespace {
 
+void PutU32LE(uint8_t* out, size_t* o, uint32_t v) {
+  for (int k = 0; k < 4; ++k) out[(*o)++] = static_cast<uint8_t>(v >> (8 * k));
+}
+
+void PutU64LE(uint8_t* out, size_t* o, uint64_t v) {
+  for (int k = 0; k < 8; ++k) out[(*o)++] = static_cast<uint8_t>(v >> (8 * k));
+}
+
+// 组装签名预映像（BSV SIGHASH_ALL|FORKID）。单独拆出来是为了能在主机上
+// 逐字节断言序列化顺序 —— 少一个字段或多一个字段算出来的 sighash 完全不同，
+// 而真机上只看"签名能不能验过"是发现不了的。
+//
+// 字段顺序（BSV BIP143 风格）：
+//   nVersion(4) hashPrevouts(32) hashSequence(32) outpoint(36)
+//   scriptCode(varint+bytes) amount(8) nSequence(4) hashOutputs(32)
+//   nLockTime(4) nHashType(4)
+bool BuildSighashPreimage(const ParsedTx& tx, uint32_t inputIndex, const PrevOut& target,
+                          const uint8_t hashPrevouts[32], const uint8_t hashSequence[32],
+                          const uint8_t hashOutputs[32], uint8_t* out, size_t cap, size_t* outLen) {
+  // 容量必须先算再写：固定部分 4+32+32+32+4，脚本 varint+bytes，
+  // 再加 amount(8) + nSequence(4) + hashOutputs(32) + locktime(4) + hashtype(4)。
+  size_t sv = VarIntSize(target.scriptLen);
+  size_t need = 4 + 32 + 32 + 32 + 4 + sv + target.scriptLen + 8 + 4 + 32 + 4 + 4;
+  if (need > cap) return false;
+
+  size_t n = 0;
+  PutU32LE(out, &n, tx.version);
+  memcpy(out + n, hashPrevouts, 32);
+  n += 32;
+  memcpy(out + n, hashSequence, 32);
+  n += 32;
+  memcpy(out + n, tx.inputTxid[inputIndex], 32);
+  n += 32;
+  PutU32LE(out, &n, tx.inputVout[inputIndex]);
+  WriteVarInt(out + n, target.scriptLen);
+  n += sv;
+  memcpy(out + n, target.script, target.scriptLen);
+  n += target.scriptLen;
+  PutU64LE(out, &n, target.satoshis);
+  // 被签输入的完整 nSequence —— 这里以前整个漏掉，算出来的 sighash 是错的
+  PutU32LE(out, &n, tx.sequence[inputIndex]);
+  memcpy(out + n, hashOutputs, 32);
+  n += 32;
+  PutU32LE(out, &n, tx.locktime);
+  PutU32LE(out, &n, kSighashAllForkId);
+  *outLen = n;
+  return true;
+}
+
 // 重放序列化并计算 sighash（BSV：SIGHASH_ALL | FORKID）
 bool ComputeSighash(const TxSignContext& ctx, const ParsedTx& tx, uint8_t out[32]) {
+  if (ctx.inputIndex >= tx.inputCount) return false;
+
   // hashPrevouts
   uint8_t prevBuf[kMaxInputs * 36];
   for (uint32_t i = 0; i < tx.inputCount; ++i) {
@@ -215,22 +276,26 @@ bool ComputeSighash(const TxSignContext& ctx, const ParsedTx& tx, uint8_t out[32
   uint8_t hPrev[32], hSeq[32], hOut[32];
   Sha256d(prevBuf, tx.inputCount * 36, hPrev);
 
-  // hashSequence
+  // hashSequence：每个输入的**完整 4 字节** nSequence
   uint8_t seqBuf[kMaxInputs * 4];
-  for (uint32_t i = 0; i < tx.inputCount; ++i) {
-    memset(seqBuf + i * 4, 0, 4);
-    seqBuf[i * 4 + 3] = tx.sequence[i];
+  {
+    size_t so = 0;
+    for (uint32_t i = 0; i < tx.inputCount; ++i) {
+      PutU32LE(seqBuf, &so, tx.sequence[i]);
+    }
   }
   Sha256d(seqBuf, tx.inputCount * 4, hSeq);
 
-  // hashOutputs
-  uint8_t outBuf[kMaxOutputs * (8 + 9)];
+  // hashOutputs：按每个输出的真实脚本长度累加，缓冲必须按 kMaxScriptLen 定尺，
+  // 不能假设脚本只有 9 字节 —— 那是 P2PKH 的特例。
+  uint8_t outBuf[kMaxOutputs * (8 + 5 + kMaxScriptLen)];
   size_t o = 0;
   for (uint32_t i = 0; i < tx.outputCount; ++i) {
-    uint64_t v = tx.outputs[i].satoshis;
-    for (int k = 0; k < 8; ++k) outBuf[o++] = static_cast<uint8_t>(v >> (8 * k));
+    size_t vi = VarIntSize(tx.outputs[i].scriptLen);
+    if (o + 8 + vi + tx.outputs[i].scriptLen > sizeof(outBuf)) return false;
+    PutU64LE(outBuf, &o, tx.outputs[i].satoshis);
     WriteVarInt(outBuf + o, tx.outputs[i].scriptLen);
-    o += VarIntSize(tx.outputs[i].scriptLen);
+    o += vi;
     memcpy(outBuf + o, tx.outputs[i].script, tx.outputs[i].scriptLen);
     o += tx.outputs[i].scriptLen;
   }
@@ -247,36 +312,34 @@ bool ComputeSighash(const TxSignContext& ctx, const ParsedTx& tx, uint8_t out[32
   if (!target) return false;
 
   uint8_t pre[512];
-  size_t n = 0;
-  uint32_t ver = tx.version;
-  for (int k = 0; k < 4; ++k) pre[n++] = static_cast<uint8_t>(ver >> (8 * k));
-  memcpy(pre + n, hPrev, 32);
-  n += 32;
-  memcpy(pre + n, hSeq, 32);
-  n += 32;
-  memcpy(pre + n, tx.inputTxid[ctx.inputIndex], 32);
-  n += 32;
-  uint32_t vout = tx.inputVout[ctx.inputIndex];
-  for (int k = 0; k < 4; ++k) pre[n++] = static_cast<uint8_t>(vout >> (8 * k));
-  WriteVarInt(pre + n, target->scriptLen);
-  n += VarIntSize(target->scriptLen);
-  memcpy(pre + n, target->script, target->scriptLen);
-  n += target->scriptLen;
-  uint64_t value = target->satoshis;
-  for (int k = 0; k < 8; ++k) pre[n++] = static_cast<uint8_t>(value >> (8 * k));
-  memcpy(pre + n, hOut, 32);
-  n += 32;
-  for (int k = 0; k < 4; ++k) pre[n++] = static_cast<uint8_t>(tx.locktime >> (8 * k));
-  uint32_t sht = kSighashAllForkId;
-  for (int k = 0; k < 4; ++k) pre[n++] = static_cast<uint8_t>(sht >> (8 * k));
-  Sha256d(pre, n, out);
+  size_t preLen = 0;
+  if (!BuildSighashPreimage(tx, ctx.inputIndex, *target, hPrev, hSeq, hOut, pre, sizeof(pre),
+                            &preLen)) {
+    return false;
+  }
+  Sha256d(pre, preLen, out);
   return true;
 }
 
 }  // namespace
 
+// 导出给主机侧测试逐字节断言序列化顺序
+bool OpsBuildSighashPreimage(const ParsedTx& tx, uint32_t inputIndex, const PrevOut& target,
+                             const uint8_t hashPrevouts[32], const uint8_t hashSequence[32],
+                             const uint8_t hashOutputs[32], uint8_t* out, size_t cap,
+                             size_t* outLen) {
+  if (inputIndex >= tx.inputCount) return false;
+  return BuildSighashPreimage(tx, inputIndex, target, hashPrevouts, hashSequence, hashOutputs, out,
+                              cap, outLen);
+}
+
 TxReview ReviewTx(const TxSignContext& ctx) {
   TxReview r;
+  // 找零归属与"前序是否属于自己"都靠设备自己的公钥判定；缺它就不能继续。
+  if (!ctx.raw || ctx.rawLen == 0 || !ctx.pub33) {
+    r.error = TxReviewError::kMalformed;
+    return r;
+  }
   ParsedTx tx;
   TxParseError pe = ParseTx(ctx.raw, ctx.rawLen, &tx);
   if (pe != TxParseError::kOk) {
@@ -310,6 +373,7 @@ TxReview ReviewTx(const TxSignContext& ctx) {
       return r;
     }
     r.totalIn += ev->satoshis;
+    memcpy(r.inputHash160s[i], h, 20);
     if (!ev->provenOnChain) r.anyUnproven = true;
   }
   r.totalOut = tx.totalOut;
@@ -318,6 +382,18 @@ TxReview ReviewTx(const TxSignContext& ctx) {
     return r;
   }
   r.fee = r.totalIn - r.totalOut;
+
+  // 被签的那个输入，其前序收款地址必须是本设备公钥派生出来的 hash160。
+  // 不查这一项的话，主机可以把任意一个别人的 UTXO 指成 inputIndex，
+  // 设备照样算 sighash、照样签，签出来的东西归属不明。
+  {
+    uint8_t ourHash[20];
+    Hash160(ctx.pub33, 33, ourHash);
+    if (memcmp(r.inputHash160s[ctx.inputIndex], ourHash, 20) != 0) {
+      r.error = TxReviewError::kSignedInputNotOurs;
+      return r;
+    }
+  }
 
   // 输出分类：只接受 P2PKH
   bool haveChange = false;
@@ -331,7 +407,16 @@ TxReview ReviewTx(const TxSignContext& ctx) {
       haveChange = true;
       r.changeSats += tx.outputs[i].satoshis;
     } else {
+      // 收款方与金额由设备从输出脚本解出来：界面上展示的付款清单
+      // 一定来自待签交易本身，不是主机给的标签。
       r.payCount++;
+      if (r.payRecorded < kMaxPayOutputs) {
+        r.pays[r.payRecorded].satoshis = tx.outputs[i].satoshis;
+        memcpy(r.pays[r.payRecorded].hash160, h, 20);
+        r.payRecorded++;
+      } else {
+        r.truncatedPays = true;
+      }
     }
   }
   if (r.payCount == 0) {

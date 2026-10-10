@@ -4,11 +4,22 @@
 #include <Arduino.h>
 
 namespace rockey {
+#if defined(ROCKEY_DEV_BUTTON_API)
+namespace { volatile uint32_t serial_errors = 0; }
+uint32_t Board::DevSerialErrors() { return serial_errors; }
+#endif
 
 bool Board::Init() {
   pinMode(kPinVbatAdc, INPUT);
   analogSetPinAttenuation(kPinVbatAdc, ADC_11db);
+  // 一个 VLP 分片可超过默认 256-byte UART RX 缓冲。屏幕绘制与原子
+  // Flash 提交期间也要容纳已在传输的帧，避免截断密文后心跳超时。
+  Serial.setRxBufferSize(8192);
   Serial.begin(kUsbSerialBaud);
+  Serial.setRxFIFOFull(16);
+#if defined(ROCKEY_DEV_BUTTON_API)
+  Serial.onReceiveError([](hardwareSerial_error_t error) { serial_errors |= uint32_t(1) << unsigned(error); });
+#endif
   // BASIC v2.7 的 USB 桥是 CP2104：115200 是唯一稳定点，不尝试热插拔枚举。
   Display::Init();
   Display::SetBacklightCore(255);

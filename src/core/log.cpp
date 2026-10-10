@@ -8,6 +8,29 @@ namespace rockey {
 
 uint32_t Log::dropped_ = 0;
 
+namespace {
+
+// 日志串口。协议帧走 Serial（USB 转串口），日志必须换一条口，
+// 否则日志行会插进帧流里被主机当成脏数据丢弃。
+// ROCKEY_LOG_UART2 由发布档位在 platformio.ini 里定义。
+// 返回一个"能 println 的东西"，具体类型随档位变化，
+// 所以这里用模板 + auto 收敛到共同接口。
+template <typename PortT>
+inline void LogLine(PortT& port, const char* line) {
+  port.println(line);
+}
+
+inline void Emit(const char* line) {
+#if defined(ROCKEY_LOG_UART2)
+  static HardwareSerial s(1);
+  LogLine(s, line);
+#else
+  LogLine(Serial, line);
+#endif
+}
+
+}  // namespace
+
 bool Log::Enabled(LogLevel level) {
   return static_cast<int>(level) <= LOG_LEVEL;
 }
@@ -61,7 +84,7 @@ void Log::Write(LogLevel level, const char* tag, const char* fmt, ...) {
     va_end(ap);
   }
   line[sizeof(line) - 1] = '\0';
-  Serial.println(line);
+  Emit(line);
 }
 
 }  // namespace rockey

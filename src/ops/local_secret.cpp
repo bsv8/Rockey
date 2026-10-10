@@ -28,6 +28,37 @@ void BuildAad(const char* scope, size_t scopeLen, const uint8_t salt[kSaltLen], 
   *outLen = n;
 }
 
+// 明确给定 Key 的纯密码学核心。业务入口仍只能从已解锁 KeyStore 取得 Key；
+// 启动 KAT 使用公开向量，不能依赖尚未解锁的用户钱包，也不临时解锁钱包。
+bool DeriveForKey(const uint8_t* priv, const uint8_t* pub,
+                  const char* scope, size_t scopeLen, uint8_t out[32]) {
+  if (!ValidateScope(scope, scopeLen)) return false;
+  uint8_t info[2 * 33 + 1 + kScopeMax];
+  size_t hexLen = digest::ToHex(pub, 33, reinterpret_cast<char*>(info), sizeof(info));
+  if (hexLen == 0) return false;
+  info[hexLen] = 0;
+  memcpy(info + hexLen + 1, scope, scopeLen);
+  digest::HkdfSha256(priv, 32, reinterpret_cast<const uint8_t*>(kHkdfSalt), strlen(kHkdfSalt),
+                    info, hexLen + 1 + scopeLen, out, 32);
+  secure::Wipe(info, sizeof(info));
+  return true;
+}
+
+bool OpenForKey(const uint8_t key[32], const char* scope, size_t scopeLen,
+                const SealedSecret& sealed, uint8_t* plaintext, size_t ptCap, size_t* ptLen) {
+  if (!ValidateScope(scope, scopeLen) || sealed.ciphertextLen < kTagLen) return false;
+  const size_t bodyLen = sealed.ciphertextLen - kTagLen;
+  if (bodyLen > ptCap || bodyLen > kPlaintextMax) return false;
+  uint8_t aad[64 + kScopeMax + kSaltLen];
+  size_t aadLen = 0;
+  BuildAad(scope, scopeLen, sealed.salt, aad, &aadLen);
+  const bool ok = aead::Open(key, sealed.nonce, aad, aadLen, sealed.ciphertext, bodyLen,
+                           sealed.ciphertext + bodyLen, plaintext);
+  secure::Wipe(aad, sizeof(aad));
+  if (ok && ptLen) *ptLen = bodyLen;
+  return ok;
+}
+
 }  // namespace
 
 bool ValidateScope(const char* scope, size_t len) {
@@ -45,17 +76,7 @@ bool DeriveKey(const char* scope, size_t scopeLen, uint8_t out[32]) {
   if (!priv) return false;
   const uint8_t* pub = keystore::KeyStore::PublicKey();
 
-  // info = 小写压缩公钥 hex 文本 || 0x00 || scope
-  uint8_t info[2 * 33 + 1 + kScopeMax];
-  size_t hexLen = digest::ToHex(pub, 33, reinterpret_cast<char*>(info), sizeof(info));
-  if (hexLen == 0) return false;
-  info[hexLen] = 0x00;
-  memcpy(info + hexLen + 1, scope, scopeLen);
-
-  digest::HkdfSha256(priv, 32, reinterpret_cast<const uint8_t*>(kHkdfSalt), strlen(kHkdfSalt),
-                     info, hexLen + 1 + scopeLen, out, 32);
-  secure::Wipe(info, sizeof(info));
-  return true;
+  return DeriveForKey(priv, pub, scope, scopeLen, out);
 }
 
 bool Seal(const char* scope, size_t scopeLen, const uint8_t* plaintext, size_t ptLen,
@@ -81,21 +102,9 @@ bool Seal(const char* scope, size_t scopeLen, const uint8_t* plaintext, size_t p
 
 bool Open(const char* scope, size_t scopeLen, const SealedSecret& sealed, uint8_t* plaintext,
           size_t ptCap, size_t* ptLen) {
-  if (sealed.ciphertextLen < kTagLen) return false;
-  size_t bodyLen = sealed.ciphertextLen - kTagLen;
-  if (bodyLen > ptCap || bodyLen > kPlaintextMax) return false;
   secure::SecretBytes<32> key{};
   if (!DeriveKey(scope, scopeLen, key.data())) return false;
-
-  uint8_t aad[64 + kScopeMax + kSaltLen];
-  size_t aadLen = 0;
-  BuildAad(scope, scopeLen, sealed.salt, aad, &aadLen);
-
-  bool ok = aead::Open(key.data(), sealed.nonce, aad, aadLen, sealed.ciphertext, bodyLen,
-                             sealed.ciphertext + bodyLen, plaintext);
-  secure::Wipe(aad, sizeof(aad));
-  if (ok && ptLen) *ptLen = bodyLen;
-  return ok;
+  return OpenForKey(key.data(), scope, scopeLen, sealed, plaintext, ptCap, ptLen);
 }
 
 bool SelfTest() {
@@ -127,15 +136,9 @@ bool SelfTest() {
   if (memcmp(hex, kPubHex, 66) != 0) return false;
 
   // 2) HKDF 派生
-  uint8_t info[2 * 33 + 1 + kScopeMax];
-  size_t hexLen = digest::ToHex(pub, 33, reinterpret_cast<char*>(info), sizeof(info));
-  info[hexLen] = 0x00;
-  memcpy(info + hexLen + 1, kScope, sizeof(kScope) - 1);
-  uint8_t key[32];
-  digest::HkdfSha256(kPriv1, 32, reinterpret_cast<const uint8_t*>(kHkdfSalt), strlen(kHkdfSalt),
-                     info, hexLen + 1 + sizeof(kScope) - 1, key, 32);
-  bool ok = memcmp(key, kExpectKey, 32) == 0;
-  secure::Wipe(key, sizeof(key));
+  secure::SecretBytes<32> key{};
+  if (!DeriveForKey(kPriv1, pub, kScope, sizeof(kScope) - 1, key.data())) return false;
+  bool ok = memcmp(key.data(), kExpectKey, 32) == 0;
   if (!ok) return false;
 
   // 3) AAD + 密文
@@ -161,16 +164,16 @@ bool SelfTest() {
   sealed.ciphertextLen = sizeof(kExpectCt);
   uint8_t plain[64];
   size_t plainLen = 0;
-  ok = Open(kScope, sizeof(kScope) - 1, sealed, plain, sizeof(plain), &plainLen) &&
+  ok = OpenForKey(key.data(), kScope, sizeof(kScope) - 1, sealed, plain, sizeof(plain), &plainLen) &&
        plainLen == sizeof(kPlain) - 1 && memcmp(plain, kPlain, plainLen) == 0;
   secure::Wipe(plain, sizeof(plain));
   if (!ok) return false;
-  if (Open("other", 5, sealed, plain, sizeof(plain), &plainLen)) return false;
+  if (OpenForKey(key.data(), "other", 5, sealed, plain, sizeof(plain), &plainLen)) return false;
   secure::Wipe(plain, sizeof(plain));
 
   // 5) 篡改 envelope salt 必须解封失败
   sealed.salt[0] ^= 0x01;
-  if (Open(kScope, sizeof(kScope) - 1, sealed, plain, sizeof(plain), &plainLen)) return false;
+  if (OpenForKey(key.data(), kScope, sizeof(kScope) - 1, sealed, plain, sizeof(plain), &plainLen)) return false;
   secure::Wipe(plain, sizeof(plain));
   return true;
 }

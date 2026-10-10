@@ -122,15 +122,18 @@ bool Core(const uint8_t key[kKeyLen], const uint8_t nonce[kNonceLen], const uint
   uint8_t j0[16];
   MakeJ0(nonce, j0);
   Gctr(aes, j0, in, len, out);
+  // GHASH 必须覆盖**密文**。
+  // 加密方向 out 就是密文；解密方向 in 是密文而 out 是明文 —— 早先这里一律
+  // 用 out，于是 Open 的校验和永远算不对，解封、解本地秘密、解密帧全部失败。
+  const uint8_t* ctForHash = encrypting ? out : in;
   uint8_t s[16];
-  Ghash(h, aad, aadLen, out, len, s);
+  Ghash(h, aad, aadLen, ctForHash, len, s);
   uint8_t ej0[16];
   aes.EncryptBlock(j0, ej0);
   for (int k = 0; k < 16; ++k) tag[k] = static_cast<uint8_t>(s[k] ^ ej0[k]);
   secure::Wipe(h, sizeof(h));
   secure::Wipe(s, sizeof(s));
   secure::Wipe(ej0, sizeof(ej0));
-  (void)encrypting;
   return true;
 }
 
@@ -160,70 +163,79 @@ bool Open(const uint8_t key[kKeyLen], const uint8_t nonce[kNonceLen], const uint
 }
 
 bool SelfTest() {
-  // NIST GCM test case 1：128 位密钥、空明文
-  {
-    uint8_t key[32] = {0};
-    uint8_t nonce[12] = {0};
-    uint8_t tag[16];
-    static const uint8_t kExpect[16] = {0x58, 0xe2, 0xfc, 0xce, 0xfa, 0x7e, 0x30, 0x61,
-                                         0x36, 0x7f, 0x1d, 0x57, 0xa4, 0xe7, 0x45, 0x5a};
-    uint8_t dummy[1];
-    if (!Seal(key, nonce, nullptr, 0, nullptr, 0, dummy, tag)) return false;
-    if (memcmp(tag, kExpect, 16) != 0) return false;
-  }
-  // Test case 2：128 位密钥、单块明文
-  {
-    uint8_t key[32] = {0};
-    uint8_t nonce[12] = {0};
-    uint8_t pt[16] = {0};
-    uint8_t ct[16];
-    uint8_t tag[16];
-    static const uint8_t kExpectCt[16] = {0x03, 0x88, 0xda, 0xce, 0x60, 0xb6, 0xa3, 0x92,
-                                           0xf3, 0x28, 0xc2, 0xb9, 0x71, 0xb2, 0xfe, 0x78};
-    static const uint8_t kExpectTag[16] = {0xab, 0x6e, 0x47, 0xd4, 0x2c, 0xec, 0x13, 0xbd,
-                                           0xf5, 0x3a, 0x67, 0xb2, 0x12, 0x57, 0xbd, 0xdf};
-    if (!Seal(key, nonce, nullptr, 0, pt, 16, ct, tag)) return false;
-    if (memcmp(ct, kExpectCt, 16) != 0 || memcmp(tag, kExpectTag, 16) != 0) return false;
-    uint8_t back[16];
-    if (!Open(key, nonce, nullptr, 0, ct, 16, tag, back)) return false;
-    if (memcmp(back, pt, 16) != 0) return false;
-    // 篡改 tag 必须失败
-    tag[0] ^= 1;
-    if (Open(key, nonce, nullptr, 0, ct, 16, tag, back)) return false;
-  }
-  // Test case 4：256 位密钥、单块明文（我们实际使用的密钥长度）
-  {
-    uint8_t key[32] = {0};
-    uint8_t nonce[12] = {0};
-    uint8_t pt[16] = {0};
-    uint8_t ct[16];
-    uint8_t tag[16];
-    static const uint8_t kExpectCt[16] = {0xce, 0xa7, 0x40, 0x3d, 0x4d, 0x60, 0x6b, 0x6e,
-                                           0x07, 0x4e, 0xc5, 0xd3, 0xba, 0xf3, 0x9d, 0x18};
-    static const uint8_t kExpectTag[16] = {0xd0, 0xd1, 0xc8, 0xa7, 0x99, 0x99, 0x6b, 0xf0,
-                                           0x26, 0x5b, 0x98, 0xb5, 0xd4, 0x8a, 0xb9, 0x19};
-    if (!Seal(key, nonce, nullptr, 0, pt, 16, ct, tag)) return false;
-    if (memcmp(ct, kExpectCt, 16) != 0 || memcmp(tag, kExpectTag, 16) != 0) return false;
-  }
-  // Test case 16：256 位密钥 + AAD + 多块明文
-  {
-    uint8_t key[32];
-    uint8_t nonce[12];
-    uint8_t aad[20];
-    memset(key, 0xFE, sizeof(key));
-    memset(nonce, 0xCA, sizeof(nonce));
-    memset(aad, 0xFA, sizeof(aad));
-    uint8_t pt[60];
-    memset(pt, 0xAB, sizeof(pt));
-    uint8_t ct[60];
-    uint8_t tag[16];
-    if (!Seal(key, nonce, aad, sizeof(aad), pt, sizeof(pt), ct, tag)) return false;
-    uint8_t back[60];
-    if (!Open(key, nonce, aad, sizeof(aad), ct, sizeof(ct), tag, back)) return false;
-    if (memcmp(back, pt, sizeof(pt)) != 0) return false;
-    // 篡改 AAD 必须失败
-    aad[0] ^= 0x01;
-    if (Open(key, nonce, aad, sizeof(aad), ct, sizeof(ct), tag, back)) return false;
+  // 说明：本自检原先拿 **AES-256** 的输出去比 NIST 官方的 **AES-128** 用例
+  // （Test case 1/2），所以每次上电都报失败，而实现本身其实是对的。
+  // 现在改为与 mbedTLS 的 AES-GCM 逐字节对齐的 AES-256 向量，覆盖
+  // 空明文 / 整块 / 带尾部零头 / 带 AAD，以及 Open 的往返与篡改拒绝。
+  // AES 分组由 ESP-IDF 提供，GHASH/CTR 组合由本文件实现，所以这里的向量
+  // 真正校验的是 GHASH 与 GCTR 的组合，而不是只测 AES。
+  //
+  // key = 00 01 .. 1f, iv = 00 10 20 .. a0, pt = 00 01 .., aad = a0 a1 ..
+  struct Case {
+    uint8_t ptLen;
+    uint8_t aadLen;
+    const uint8_t* ct;
+    uint8_t ctLen;
+    const uint8_t* tag;
+  };
+  static const uint8_t kCtEmpty[] = {0};
+  static const uint8_t kCtBlock[] = {0x59, 0x21, 0x25, 0xd1, 0xab, 0x26, 0x38, 0x50,
+                                     0x49, 0x46, 0xcd, 0x87, 0x21, 0xe8, 0x68, 0xda};
+  static const uint8_t kCtTail[] = {0x59, 0x21, 0x25, 0xd1, 0xab, 0x26, 0x38, 0x50, 0x49,
+                                    0x46, 0xcd, 0x87, 0x21, 0xe8, 0x68, 0xda, 0x34, 0x0d,
+                                    0x18, 0x54};
+  static const uint8_t kCtAad[] = {0x59, 0x21, 0x25, 0xd1, 0xab, 0x26, 0x38, 0x50, 0x49,
+                                   0x46, 0xcd, 0x87, 0x21, 0xe8, 0x68, 0xda, 0x34, 0x0d,
+                                   0x18, 0x54, 0xaf, 0x8a, 0x8c, 0xa6, 0x95, 0x5b, 0xcf,
+                                   0x7b, 0xe7, 0x18, 0x7a, 0xb8};
+  static const uint8_t kTagEmpty[16] = {0xc9, 0x51, 0xb3, 0x49, 0xd1, 0xbb, 0x47, 0xac,
+                                        0x30, 0x2e, 0xae, 0x21, 0x0b, 0xb5, 0x94, 0xb5};
+  static const uint8_t kTagBlock[16] = {0xb7, 0x61, 0xbc, 0xd5, 0x2d, 0x78, 0xd8, 0x11,
+                                        0x55, 0x52, 0x22, 0x1e, 0x82, 0x3d, 0xb5, 0xfe};
+  static const uint8_t kTagTail[16] = {0xcf, 0x15, 0xb3, 0x68, 0xdc, 0x75, 0xdc, 0xf2,
+                                       0xa5, 0xd9, 0xeb, 0xe4, 0xec, 0xe5, 0xb7, 0x75};
+  static const uint8_t kTagAad[16] = {0x81, 0x2b, 0x80, 0x25, 0xc6, 0xbf, 0xe1, 0x60,
+                                      0x75, 0x5d, 0x56, 0xa2, 0x75, 0xd8, 0x66, 0xbc};
+  static const Case kCases[] = {
+      {0, 0, kCtEmpty, 0, kTagEmpty},
+      {16, 0, kCtBlock, 16, kTagBlock},
+      {20, 0, kCtTail, 20, kTagTail},
+      {32, 20, kCtAad, 32, kTagAad},
+  };
+
+  uint8_t key[32];
+  uint8_t nonce[12];
+  for (int i = 0; i < 32; ++i) key[i] = static_cast<uint8_t>(i);
+  for (int i = 0; i < 12; ++i) nonce[i] = static_cast<uint8_t>(0x10 * i);
+
+  for (const auto& c : kCases) {
+    uint8_t pt[32], aad[20], ct[32], tag[16];
+    for (int i = 0; i < c.ptLen; ++i) pt[i] = static_cast<uint8_t>(i);
+    for (int i = 0; i < c.aadLen; ++i) aad[i] = static_cast<uint8_t>(0xA0 + i);
+    if (!Seal(key, nonce, c.aadLen ? aad : nullptr, c.aadLen, c.ptLen ? pt : nullptr, c.ptLen, ct,
+              tag)) {
+      return false;
+    }
+    if (c.ctLen && memcmp(ct, c.ct, c.ctLen) != 0) return false;
+    if (memcmp(tag, c.tag, 16) != 0) return false;
+
+    uint8_t back[32];
+    if (!Open(key, nonce, c.aadLen ? aad : nullptr, c.aadLen, ct, c.ptLen, tag, back)) return false;
+    if (c.ptLen && memcmp(back, pt, c.ptLen) != 0) return false;
+
+    // 篡改 tag / 密文 / AAD 都必须被拒绝
+    if (c.ptLen) {
+      tag[0] ^= 0x01;
+      if (Open(key, nonce, c.aadLen ? aad : nullptr, c.aadLen, ct, c.ptLen, tag, back)) return false;
+      tag[0] ^= 0x01;
+      ct[0] ^= 0x01;
+      if (Open(key, nonce, c.aadLen ? aad : nullptr, c.aadLen, ct, c.ptLen, tag, back)) return false;
+      ct[0] ^= 0x01;
+    }
+    if (c.aadLen) {
+      aad[0] ^= 0x01;
+      if (Open(key, nonce, aad, c.aadLen, ct, c.ptLen, tag, back)) return false;
+    }
   }
   return true;
 }

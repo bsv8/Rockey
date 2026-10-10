@@ -24,9 +24,7 @@ i18n::Str RiskString(Risk r) {
     case Risk::kFeeHigh: return i18n::Str::kRiskFeeHigh;
     case Risk::kUnknownScript: return i18n::Str::kRiskUnknownScript;
     case Risk::kPrivateChannel: return i18n::Str::kRiskPrivateChannel;
-    case Risk::kExternalIssuer: return i18n::Str::kRiskExternalIssuer;
-    case Risk::kTimeUnverified: return i18n::Str::kRiskTimeUnverified;
-    case Risk::kNoEvidence: return i18n::Str::kNoEvidenceShort;
+    case Risk::kContentDigestHostComputed: return i18n::Str::kContentDigestByHost;
     default: return i18n::Str::kNone;
   }
 }
@@ -73,34 +71,24 @@ void ReviewDoc::AddRisk(Risk r) {
   risks[riskCount++] = r;
 }
 
-bool ReviewDoc::AppendExternal(const char* title, const char* body, size_t len) {
-  if (!body || len == 0) return false;
-  static char clean[ROCKEY_MAX_DYNAMIC_TEXT * 2];
-  SanitizeStats st;
-  SanitizeResult sr = SanitizeUtf8(body, len, clean, sizeof(clean), ROCKEY_MAX_DYNAMIC_TEXT, &st);
-  extStats = st;
-  if (st.haveFirstBad) missingGlyphCp = st.firstBadCp;
-  AddChapter(title, kChapterExternal);
-  if (sr == SanitizeResult::kReplaced || sr == SanitizeResult::kInvalid) {
-    AppendLine(i18n::T(i18n::Str::kReadStripped));
-    AppendLine("");
-  }
-  if (sr == SanitizeResult::kOverLimit) {
-    AppendLine(i18n::T(i18n::Str::kReadTruncated));
-    AppendLine("");
-  }
+// 主机文本字段进文档前的统一登记：记录第一个问题码位（缺字或被清洗掉的
+// 字符），供阅读页脚显示"缺字 U+xxxx"。
+// 外部正文整章不进设备（信用长文/Markdown 归 Keymaster），所以这里不再有
+// "追加外部章节"的入口 —— 设备只审实际签名对象自带的字段。
+void ReviewDoc::NoteDynamicText(const char* cleaned, size_t len, const SanitizeStats& stats) {
+  if (!cleaned || len == 0) return;
   uint32_t miss = 0;
-  if (!FontCoversUtf8(FontRole::kBody, clean, strlen(clean), &miss)) {
+  if (!FontCoversUtf8(FontRole::kBody, cleaned, len, &miss)) {
     hasMissingGlyph = true;
-    missingGlyphCp = miss;
+    if (!missingGlyphCp) missingGlyphCp = miss;
   }
-  AppendLine(clean);
-  hasExternalText = true;
-  return true;
+  if (stats.haveFirstBad && !missingGlyphCp) missingGlyphCp = stats.firstBadCp;
 }
 
 void ReviewDoc::Finish() {
   text[textLen] = '\0';
+  // 门禁总量 = 必经章节数 + 风险条数 + "不包含"一项
+  requiredTotal = static_cast<uint16_t>(chapterCount) + riskCount + 1u;
 }
 
 }  // namespace ops

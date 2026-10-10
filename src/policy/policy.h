@@ -21,6 +21,8 @@
 namespace rockey {
 namespace policy {
 
+// 授权类别（进匹配键的分类维度，与 operation id 一起决定授权范围）。
+// 6 = 可信度证据（evidence.receive）：随设备信用查询任务撤销，保留空位不复用。
 enum class Category : uint8_t {
   kSystem = 0,
   kIdentity = 1,
@@ -28,9 +30,13 @@ enum class Category : uint8_t {
   kChannel = 3,
   kLocalSecret = 4,
   kContent = 5,
-  kEvidence = 6,
   kMigration = 7,
 };
+
+// 导出、迁移与恢复备份不得持续授权（需求 §5：私钥导出和擦除不得持续允许）：
+// 这类请求只允许"本次允许/本次拒绝"，会话允许/会话否决对它们无效。
+// 调用方在把它写成持续决定前必须先过这一问。
+bool PersistentDecisionAllowed(Category c);
 
 // 匹配键里的方向/协议等维度
 enum class Direction : uint8_t { kNone = 0, kInbound = 1, kOutbound = 2 };
@@ -43,6 +49,10 @@ struct MatchKey {
   uint8_t protocol = 0;        // 0 = 无协议
   uint8_t direction = 0;       // Direction
   uint8_t objectHash[16] = {0};  // 对象摘要（公钥/地址/消息摘要的前 16 字节）
+  // 主机给出的请求承诺（requestCommitment）的前 16 字节。
+  // 一条持续授权只对它被承诺过的那一个请求有效：换了承诺就是另一个授权，
+  // 不能靠"同类请求"顺带放行。
+  uint8_t commitment[16] = {0};
   uint32_t sessionId = 0;
   uint8_t sessionEpoch = 0;
   uint32_t walletGeneration = 0;
@@ -59,6 +69,7 @@ struct SessionDecision {
   uint32_t usedCount = 0;
   uint32_t maxCount = 0;   // 0 = 不限次数（仍受会话/连接约束）
   uint64_t budgetSats = 0; // 0 = 不限
+  uint64_t spentSats = 0;  // 已按该授权花掉的金额
   uint32_t createdMs = 0;
   uint8_t category = 0;
   char label[40] = {0};
@@ -79,15 +90,20 @@ class Policy {
   static void ClearSession(uint32_t sessionId);
   static uint32_t decisionRevision();
 
-  static EvalResult Evaluate(const MatchKey& key, uint8_t category, const char* label);
+  // sats = 本次操作涉及的金额（交易支付额），用于预算判定；非金额操作为 0
+  static EvalResult Evaluate(const MatchKey& key, uint8_t category, const char* label,
+                            uint64_t sats = 0);
   // 本次允许/拒绝：仅影响本次，不写入持续决定
   static void RecordOnce(Direction direction);
   // 会话允许/否决由设备菜单调用
   static bool GrantSession(const MatchKey& key, uint8_t category, const char* label, uint32_t maxCount,
                            uint64_t budgetSats);
   static bool DenySession(const MatchKey& key, uint8_t category, const char* label);
+  // index 是 Get() 暴露的槽位下标；取消后数组压缩，下标含义保持一致
   static bool CancelSession(uint32_t index);
   static bool CancelAll();
+  // 一次会话允许被实际执行后调用：累加次数与金额，供限额判定
+  static void Consume(const MatchKey& key, uint64_t sats);
 
   static uint8_t Count();
   static bool Get(uint8_t index, SessionDecision* out);
@@ -99,6 +115,7 @@ class Policy {
  private:
   static int Find(const MatchKey& key);
   static bool SameScope(const MatchKey& a, const MatchKey& b);
+  static int Allocate(const MatchKey& key, uint8_t category, const char* label);
 
   static SessionDecision s_[kMaxSessionDecisions];
   static uint8_t s_count_;

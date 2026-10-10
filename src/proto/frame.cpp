@@ -41,16 +41,65 @@ void FrameReader::Flush() {
   resyncs_++;
 }
 
-bool FrameReader::Feed(const uint8_t* data, size_t len, Frame* out) {
-  // 单次只输出一条帧；剩余数据留给下一次调用（调用方循环直到 Feed 返回 false）
+// 尝试从内部缓冲里切出一条完整帧；切出后返回 true 并把剩余字节前移。
+// 单独成函数，保证"缓冲里已经躺着一条完整帧"时不必等下一批字节就能取出：
+// 调用方（Link::Poll）会用同一批输入反复调用 Feed，Feed 必须先把缓冲吐干净，
+// 否则已缓冲的帧会被新输入顶在后面，或被重复投递。
+bool FrameReader::TakeBuffered(Frame* out) {
+  if (len_ < kFrameHeaderLen) return false;
+  if (buf_[0] != kMagic0 || buf_[1] != kMagic1) {
+    Flush();
+    return false;
+  }
+  if (buf_[2] != kVersion) {
+    dropped_++;
+    Flush();
+    return false;
+  }
+  uint16_t plen;
+  memcpy(&plen, buf_ + 9, 2);
+  if (plen > ROCKEY_MAX_FRAME_PAYLOAD) {
+    // 主机自报的无界/超限长度：立刻丢弃，不据此分配或拷贝
+    dropped_++;
+    Flush();
+    return false;
+  }
+  size_t total = kFrameHeaderLen + plen + kFrameTrailerLen;
+  if (len_ < total) return false;  // 还没收齐，继续等
+
+  uint32_t crc;
+  memcpy(&crc, buf_ + kFrameHeaderLen + plen, 4);
+  if (crc != store::Crc32(buf_ + 2, kFrameHeaderLen - 2 + plen)) {
+    dropped_++;
+    Flush();
+    return false;
+  }
+
+  uint32_t seq;
+  memcpy(&seq, buf_ + 5, 4);
+  out->type = static_cast<FrameType>(buf_[3]);
+  out->flags = buf_[4];
+  out->seq = seq;
+  out->len = plen;
+  out->payload = buf_ + kFrameHeaderLen;
+  size_t rest = len_ - total;
+  if (rest) memmove(buf_, buf_ + total, rest);
+  len_ = rest;
+  return true;
+}
+
+bool FrameReader::Feed(const uint8_t* data, size_t len, Frame* out, size_t* consumed) {
+  *consumed = 0;
+  // 1) 先把缓冲里已有的完整帧取干净（不消耗新输入）
+  if (TakeBuffered(out)) return true;
+
+  // 2) 消费新字节。USB 串口会断包/粘包：一次 read 既不等于一帧，也不等于零帧。
   size_t need = kFrameHeaderLen + kFrameTrailerLen;
   for (size_t i = 0; i < len; ++i) {
     if (len_ + need > sizeof(buf_)) {
       // 缓冲已被垃圾填满：丢弃并重新寻找 magic
       dropped_++;
       Flush();
-      // 从当前字节重新开始
-      i--;
       continue;
     }
     buf_[len_++] = data[i];
@@ -65,43 +114,12 @@ bool FrameReader::Feed(const uint8_t* data, size_t len, Frame* out) {
       }
       continue;
     }
-    if (len_ < kFrameHeaderLen) continue;
-
-    uint16_t plen;
-    memcpy(&plen, buf_ + 9, 2);
-    if (buf_[2] != kVersion) {
-      dropped_++;
-      Flush();
-      continue;
+    if (TakeBuffered(out)) {
+      *consumed = i + 1;
+      return true;
     }
-    if (plen > ROCKEY_MAX_FRAME_PAYLOAD) {
-      dropped_++;
-      Flush();
-      continue;
-    }
-    size_t total = kFrameHeaderLen + plen + kFrameTrailerLen;
-    if (len_ < total) continue;
-
-    uint32_t crc;
-    memcpy(&crc, buf_ + kFrameHeaderLen + plen, 4);
-    if (crc != store::Crc32(buf_ + 2, kFrameHeaderLen - 2 + plen)) {
-      dropped_++;
-      Flush();
-      continue;
-    }
-
-    uint32_t seq;
-    memcpy(&seq, buf_ + 5, 4);
-    out->type = static_cast<FrameType>(buf_[3]);
-    out->flags = buf_[4];
-    out->seq = seq;
-    out->len = plen;
-    out->payload = buf_ + kFrameHeaderLen;
-    size_t rest = len_ - total;
-    if (rest) memmove(buf_, buf_ + total, rest);
-    len_ = rest;
-    return true;
   }
+  *consumed = len;
   return false;
 }
 

@@ -24,6 +24,10 @@ void Buttons::Poll(uint32_t nowMs) {
   for (int i = 0; i < 3; ++i) {
     Slot& s = slots_[i];
     bool level = digitalRead(kPin[i]) != LOW;  // true = 松开
+#if defined(ROCKEY_DEV_BUTTON_API)
+    if (testDown_[i] && static_cast<int32_t>(nowMs-testUntil_[i])>=0) testDown_[i]=false;
+    level = level && !testDown_[i]; // 与实体按钮合并；失联后 TTL 自动松键。
+#endif
     if (level != s.raw) {
       s.raw = level;
       s.changeMs = nowMs;
@@ -70,6 +74,9 @@ BtnEvent Buttons::NextEvent(Btn btn, uint32_t nowMs) {
                      ? static_cast<uint16_t>(s.repeatMs - 30)
                      : cfg_.repeatMinMs;
     s.repeatNextMs = nowMs + s.repeatMs;
+    // repeatPending 要在这里重新武装，而不是只在长按触发时置位一次。
+    // 否则长按只发一次 kHoldRepeat，之后再也不发，按住无法持续滚动。
+    s.repeatPending = true;
   }
 
   if (s.eventPending) {

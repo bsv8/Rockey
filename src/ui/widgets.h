@@ -23,7 +23,7 @@ void DrawFooter(const char* leftLabel, const char* midLabel, const char* rightLa
 void DrawFooterLockHint(bool showLock);
 
 // ── 菜单 ───────────────────────────────────────────────────────────
-constexpr uint8_t kMaxMenuItems = 8;
+constexpr uint8_t kMaxMenuItems = 9;
 
 struct MenuView {
   const char* items[kMaxMenuItems];

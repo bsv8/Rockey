@@ -63,10 +63,11 @@ void DrawMenu(const MenuView& m, bool visible) {
   int lh = FontLineHeight(FontRole::kSmall);
   int itemH = lh + 6;
   uint8_t shown = visible ? m.count : (m.count > 6 ? 6 : m.count);
+  const uint8_t first = !visible && m.selected >= shown ? m.selected - shown + 1 : 0;
   int totalH = shown * itemH;
   int y0 = r.y + (r.h - totalH) / 2;
   for (uint8_t i = 0; i < shown; ++i) {
-    uint8_t idx = i;
+    uint8_t idx = first + i;
     Rect ir{10, static_cast<int16_t>(y0 + i * itemH), static_cast<int16_t>(r.w - 20),
             static_cast<int16_t>(itemH)};
     bool sel = idx == m.selected;
@@ -229,20 +230,30 @@ void Reader::Rebuild() {
   size_t len = doc_->textLen;
   int width = Board::kScreenW - 12;
   size_t pos = 0;
-  while (pos < len && lineCount_ < kMaxReaderLines) {
+  // 行数组容量就是 kMaxReaderLines；末尾哨兵要占一格，
+  // 所以最多排 kMaxReaderLines - 1 行，否则 lineStart_[lineCount_] 越界写。
+  const int kMaxLines = kMaxReaderLines - 1;
+  while (pos < len && lineCount_ < kMaxLines) {
     size_t end = 0;
     bool over = false;
     TextWrapLine(FontRole::kBody, t + pos, len - pos, width, &end, &over);
     if (end == 0) end = 1;
+    if (pos + end > len) end = len - pos;   // 不越过文档末尾
     lineStart_[lineCount_] = static_cast<uint16_t>(pos);
     lineEnd_[lineCount_] = static_cast<uint16_t>(pos + end);
     lineCount_++;
     pos += end;
   }
-  if (lineCount_ > 0) {
-    lineStart_[lineCount_] = static_cast<uint16_t>(len);
-    lineEnd_[lineCount_] = static_cast<uint16_t>(len);
+  if (pos < len && lineCount_ == 0) {
+    // 排不下任何一行（极窄或行高异常）：仍给出可渲染的一行，避免空文档崩溃路径
+    lineStart_[0] = 0;
+    lineEnd_[0] = 1;
+    lineCount_ = 1;
+    pos = 1;
   }
+  // 末尾哨兵，供滚动边界判断使用
+  lineStart_[lineCount_] = static_cast<uint16_t>(len);
+  lineEnd_[lineCount_] = static_cast<uint16_t>(len);
   dirty_ = false;
 }
 
@@ -321,11 +332,17 @@ void HoldConfirm::Reset() {
 }
 
 void HoldConfirm::Update(const Buttons& btn, uint32_t now, bool enabled) {
-  if (!enabled) {
+  // 松键栅栏：换页后必须先松开所有键，才允许开始新的长按计时。
+  //
+  // 早先这里只看 IsDown(B)：换页虽然屏蔽了按钮事件，但长按计时会接上
+  // 换页前那根仍按住的 B —— 于是用户还在上一页按着 B 进入确认页，
+  // 进度条会自己走完，等于"没松开就确认了"，直接违反需求 §6.2。
+  if (!enabled || btn.GateActive()) {
     Reset();
     return;
   }
   if (!armed_ && btn.IsDown(Btn::kB)) {
+    // 必须是一次**新的**按下：进栅栏那一刻就按着的键不算。
     armed_ = true;
     armedMs_ = now;
     fired_ = false;

@@ -21,7 +21,8 @@ void Clamp(uint8_t k[32]);
 void PublicFromPrivate(const uint8_t priv[32], uint8_t pub[32]);
 bool Shared(const uint8_t priv[32], const uint8_t peerPub[32], uint8_t out[32]);
 // 内置 RFC 7748 官方向量自检
-bool SelfTest();
+// extended=true 另跑 1000 次迭代回归；启动只需已知答案和低阶点门禁。
+bool SelfTest(bool extended = true);
 
 }  // namespace x25519
 }  // namespace rockey

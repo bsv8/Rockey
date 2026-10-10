@@ -2,7 +2,7 @@
 //
 // 主机提交完整可核验操作；设备自己解析、生成安全摘要、匹配授权并执行。
 // 主机不能提交一个 digest 加一段说明让设备假称理解：每个 operation 都有
-// 固定的字段集合、对象约束与摘要构造（docs/冻结/操作目录.md）。
+// 固定的字段集合、对象约束与摘要构造（docs/冻结/线缆格式.md §5/§6）。
 #ifndef ROCKEY_OPS_DISPATCH_H
 #define ROCKEY_OPS_DISPATCH_H
 
@@ -19,6 +19,13 @@ namespace rockey {
 namespace ops {
 
 // 稳定的 operation id（进 wire 与匹配键，不随文案变化）
+//
+// 2026-10-09 收窄为最小密钥设备后：
+//  - 设备不再提供任何信用/证据服务入口（evidence.receive 已撤销），
+//    业务解释与信用信息由 Keymaster 展示；
+//  - 费用池签名（kTxFeepoolSign）在脚本/阶段/签名规则冻结前**显式不可用**，
+//    只有 op 名被登记，Prepare 直接拒绝，不解析任何字段、不进 capabilities。
+//    未冻结变体不得套用 tx.p2pkh-sign 的 P2PKH 语义（需求 §5 / VLP §3）。
 enum class OpId : uint8_t {
   kUnknown = 0,
   kSystemInfo = 1,
@@ -26,6 +33,7 @@ enum class OpId : uint8_t {
   kIdentityProve = 0x11,
   kIdentityAuthorize = 0x12,
   kTxSign = 0x21,
+  kTxFeepoolSign = 0x22,
   kChannelPublic = 0x31,
   kChannelHash = 0x32,
   kChannelPrivate = 0x33,
@@ -34,14 +42,15 @@ enum class OpId : uint8_t {
   kSecretSeal = 0x41,
   kSecretOpen = 0x42,
   kContentAttest = 0x51,
-  kEvidenceReceive = 0x61,
   kMigrationImport = 0x71,
   kMigrationExport = 0x72,
   kMigrationStatus = 0x73,
   kRecoveryBackup = 0x81,
 };
 
-// 协议草案 §6 的错误类别；wire 码在 Gate 0 冻结为这些枚举值
+// 协议草案 §6 的错误类别；wire 码在 Gate 0 冻结为这些枚举值。
+// 注意：枚举值是 wire 的一部分，只能新增，不能给已有含义改号。
+// 7 = invalid-evidence：随 evidence.receive 撤销而退役，保留空位不复用。
 enum class ErrorCode : uint16_t {
   kOk = 0,
   kLocked = 1,
@@ -50,7 +59,6 @@ enum class ErrorCode : uint16_t {
   kVersionMismatch = 4,
   kWrongKey = 5,
   kInvalidRequest = 6,
-  kInvalidEvidence = 7,
   kDeniedOnce = 8,
   kDeniedSession = 9,
   kRevoked = 10,
@@ -99,11 +107,8 @@ struct ExecContext {
   // 迁移
   uint8_t importPriv[32] = {0};
 
-  // 证据
-  uint8_t subjectPub[33] = {0};
-  uint8_t evidenceNonce[32] = {0};
-  uint8_t evidencePlain[2048] = {0};
-  size_t evidencePlainLen = 0;
+  // 本次操作涉及的金额（交易支付总额），用于会话授权的预算判定
+  uint64_t valueSats = 0;
 
   policy::MatchKey match{};
 };
@@ -114,14 +119,14 @@ enum class PrepareStatus : uint8_t {
   kMalformed,
   kUnsupported,
   kWrongKey,
-  kInvalidEvidence,
   kMigrationConflict,
   kBusy,
 };
 
-// 解析请求并生成冻结的评审文档；不产生任何签名或明文外泄
+// 解析请求并生成冻结的评审文档；不产生任何签名或明文外泄。
+// commitment 是主机给出的请求承诺，参与授权匹配（32 字节，可为 nullptr）。
 PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId,
-                      ReviewDoc* doc, ExecContext* exec);
+                      ReviewDoc* doc, ExecContext* exec, const uint8_t commitment[32]);
 
 // 执行（必须已获得授权，且执行前再次复核）
 ErrorCode Execute(ExecContext& exec, uint8_t* out, size_t outCap, size_t* outLen);

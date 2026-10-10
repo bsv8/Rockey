@@ -1,0 +1,20 @@
+{
+  "version": "esp-idf-v4.4.7",
+  "license": "Apache-2.0",
+  "files": {
+    "uart.c": {
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/v4.4.7/components/driver/uart.c",
+      "upstreamSha256": "bd3dc562dd597d04ef2702915b2a9e1096483127e008f1e053c6eee4426b6be6",
+      "sha256": "4c335d86300137c9cbba0bcc45813d86dce3685b27ab35ea1f3b0479408c6889"
+    },
+    "uart_hal_iram.c": {
+      "url": "https://raw.githubusercontent.com/espressif/esp-idf/v4.4.7/components/hal/uart_hal_iram.c",
+      "upstreamSha256": "3c28f398169300b296e6ce210741e4fe188639f8ba6d89316bd12c8bd8d06a06",
+      "sha256": "e0330d7884aea1bae532bebe7810884e64e6b6fecdf598fc9a1968de10d21ec5"
+    }
+  },
+  "modifications": [
+    "uart.c: enable upstream CONFIG_UART_ISR_IN_IRAM in this translation unit",
+    "uart_hal_iram.c: explicit IRAM_ATTR on five FIFO HAL functions, equivalent to IDF linker fragment"
+  ]
+}

@@ -20,6 +20,9 @@ FORBIDDEN_SYMBOLS = [
     # 开发/测试入口
     "DevInjectTestKey",
     "DevButtonApi",
+    "DevSetLevel",
+    "DevTestControl",
+    "rockey::e2e::",
     "TestOnlySign",
     "DebugExportPrivateKey",
     "BypassConfirm",
@@ -28,7 +31,8 @@ FORBIDDEN_SYMBOLS = [
     "SignHashRaw",
     "signDigest",
     "signHash",
-    # 原始密钥导出
+    # 未经本地菜单、重新 PIN 与实体确认的旧原始密钥入口；
+    # 正式 migration.export 由私有迁移控制器实施，不在此符号黑名单中。
     "DumpPrivateKey",
     "GetRawPrivateKey",
     "ExportPrivateKeyRaw",
@@ -76,14 +80,35 @@ def main():
         return 1
 
     problems = []
-    syms = ""
-    if os.path.isfile(args.nm) or subprocess.run(["which", args.nm],
-                                                 capture_output=True).returncode == 0:
-        syms = elf_symbols(args.nm, args.elf)
+
+    # 符号扫描是发布门禁的核心（盲签 / 测试按键 / raw key 接口）。
+    # 早先找不到 nm 时只是跳过符号扫描、照样报"通过" —— 那等于没查。
+    # 现在缺工具一律失败，并明确告诉怎么装。
+    def have_tool(t):
+        return os.path.isfile(t) or subprocess.run(["which", t], capture_output=True).returncode == 0
+
+    if not have_tool(args.nm):
+        print(f"FATAL: 找不到符号工具 {args.nm}", file=sys.stderr)
+        print("  发布固件必须扫描 ELF 符号；跳过等于没做这道门禁。", file=sys.stderr)
+        print("  装法：PlatformIO 的 xtensa 工具链已自带，可用 --nm 指定绝对路径，", file=sys.stderr)
+        print("  或设置 ROCKEY_NM 环境变量。", file=sys.stderr)
+        return 2
+    syms = elf_symbols(args.nm, args.elf)
+    if not syms.strip():
+        print(f"FATAL: {args.nm} 对 {args.elf} 没有输出任何符号", file=sys.stderr)
+        print("  拿不到符号表就无法确认盲签/测试接口已移除，拒绝通过。", file=sys.stderr)
+        return 2
 
     for sym in FORBIDDEN_SYMBOLS:
         if sym in syms:
             problems.append(f"符号 {sym} 出现在发布固件中")
+
+    # 固定目标 ESP32 的 UART ISR 和 FIFO HAL 必须在内部指令 RAM。
+    # 只定义宏而仍链接框架的 Flash 实现，无法在 LittleFS 提交时接收 USB。
+    for sym in ("uart_rx_intr_handler_default", "uart_hal_read_rxfifo", "uart_hal_write_txfifo"):
+        match = re.search(r"^([0-9a-fA-F]+)\s+[tT]\s+" + sym + r"(?:\s|\.)", syms, re.M)
+        if not match or not 0x40080000 <= int(match.group(1), 16) < 0x400A0000:
+            problems.append(f"UART 必要函数 {sym} 未落入 ESP32 IRAM")
 
     blob = elf_strings(args.elf)
     try:
@@ -106,7 +131,7 @@ def main():
         for p in problems:
             print(f"  FAIL {p}")
         return 1
-    print("  ok   无测试按键 / 无盲签 / 无原始密钥导出入口")
+    print(f"  ok   已扫描 ELF 符号（{len(syms.splitlines())} 个），无测试按键 / 无通用盲签 / 无旧原始密钥入口（迁移导出另需 PIN 与实体确认）")
     print("  ok   未发现秘密字符串")
     return 0
 

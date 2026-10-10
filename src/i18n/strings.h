@@ -10,6 +10,11 @@
 #define ROCKEY_I18N_STRINGS_H
 
 #define ROCKEY_STRING_TABLE(X)                                                                       \
+  X(kImportTitle, "Import same key", "导入同一私钥", "匯入同一私鑰", "匯入同一私鑰", "同じ鍵を取り込む") \
+  X(kImportWaiting, "Connect Keymaster to import", "连接 Keymaster 导入", "連接 Keymaster 匯入", "連接 Keymaster 匯入", "Keymaster を接続して取り込む") \
+  X(kImportWarning, "Import this identity and its payment ledger. Software password is not kept on device.", "导入此身份与付款账本。设备不保存软件密码封装。", "匯入此身份與付款帳本。裝置不保留軟件密碼封裝。", "匯入此身份與付款帳本。裝置不保留軟件密碼封裝。", "この識別情報と支払台帳を取り込む。ソフトウェアの暗号化鍵は保存しない。") \
+  X(kInitializeChoice, "New key or import", "新建私钥或导入", "新建私鑰或匯入", "新建私鑰或匯入", "新しい鍵または取り込み") \
+  X(kInitializeNew, "New key", "新建私钥", "新建私鑰", "新建私鑰", "新しい鍵") \
   /* 通用 */                                                                                        \
   X(kAppName, "Rockey", "Rockey", "Rockey", "Rockey", "Rockey")                                       \
   X(kOk, "OK", "确定", "確定", "確定", "OK")                                                         \
@@ -57,6 +62,8 @@
   X(kLockStateUnlocked, "Unlocked", "已解锁", "已解鎖", "已解鎖", "解除済み")                        \
   X(kLockStateSession, "Session active", "会话进行中", "會話進行中", "會話進行中", "セッション中")       \
   X(kLockedNotice, "Locked", "已锁定", "已鎖定", "已鎖定", "ロック")                                  \
+  X(kLockOldPin, "Current PIN", "当前密码", "目前密碼", "目前密碼", "現在のPIN")                  \
+  X(kMenuChangePin, "Change PIN", "更改密码", "變更密碼", "變更密碼", "PINを変更")              \
   /* 主菜单 */                                                                                       \
   X(kMenuTitle, "Menu", "菜单", "選單", "選單", "メニュー")                                           \
   X(kMenuReview, "Review request", "查看待确认请求", "檢視待確認請求", "檢視待確認請求",                \
@@ -72,37 +79,17 @@
   X(kMenuEmpty, "Nothing to review", "没有待确认请求", "沒有待確認請求", "沒有待確認請求",              \
     "確認待ちはありません")                                                                           \
   /* 阅读页 */                                                                                        \
-  X(kReadTitle, "Key reputation", "对方可信度", "對方可信度", "對方可信度", "相手の信頼度")             \
+  X(kReadTitle, "Review details", "审核内容", "審核內容", "審核內容", "確認内容")                        \
   X(kReadChapter, "Chapter %u/%u", "第 %u/%u 章", "第 %u/%u 章", "第 %u/%u 章", "%u/%u 章")           \
-  X(kReadJump, "Chapters", "章节", "章節", "章節", "章一覧")                                          \
   X(kReadHoldFaster, "Hold to scroll faster", "按住可加速滚动", "按住可加速捲動", "按住可加速捲動",     \
     "長押しで高速スクロール")                                                                          \
-  X(kReadEnd, "End of text", "文本结束", "文本結束", "文本結束", "本文終わり")                         \
+  X(kReadEnd, "End of text", "文本结束", "文本結束", "文本結束", "本文終わり")                          \
   X(kReadMissingGlyph, "Missing glyph U+%04X", "缺字 U+%04X", "缺字 U+%04X", "缺字 U+%04X",           \
     "文字欠落 U+%04X")                                                                                \
-  X(kReadStripped, "Some characters were removed", "部分字符已移除", "部分字元已移除",                  \
-    "部分字元已移除", "一部の文字を除去しました")                                                     \
-  X(kReadTruncated, "Text truncated by device limit", "文本因设备上限被截断",                         \
-    "文本因裝置上限被截斷", "文本因裝置上限被截斷", "装置上限により省略されました")                     \
   X(kReadOpenMenu, "Hold B for options", "长按 B 打开菜单", "長按 B 開啟選單", "長按 B 開啟選單",        \
     "B長押しでメニュー")                                                                              \
-  /* 可信度证据 */                                                                                    \
-  X(kEvidTitle, "Evidence", "证明", "證明", "證明", "証拠")                                          \
-  X(kEvidVerified, "Verified on device", "设备已验证", "裝置已驗證", "裝置已驗證", "デバイスで検証済み") \
-  X(kEvidHostClaim, "Host claim only", "仅主机声明", "僅主機聲明", "僅主機聲明", "ホストの主張のみ")     \
-  X(kEvidNoEvidence, "No evidence", "无证据", "無證據", "無證據", "証拠なし")                        \
-  X(kNoEvidenceShort, "no evidence", "无证据", "無證據", "無證據", "証拠なし")                     \
-  X(kEvidExpired, "Expired", "已过期", "已過期", "已過期", "期限切れ")                                \
-  X(kEvidTimeUnknown, "Time not verifiable", "时间不可核验", "時間不可核驗", "時間不可核驗",           \
-    "時刻を検証できません")                                                                           \
-  X(kEvidIssuer, "Issuer", "签发机构", "簽發機構", "簽發機構", "発行元")                              \
-  X(kEvidNonce, "Nonce", "随机挑战", "隨機挑戰", "隨機挑戰", "ナンス")                                \
-  X(kEvidSubject, "Subject key", "对象公钥", "對象公鑰", "對象公鑰", "対象公開鍵")                     \
-  X(kEvidBoundRequest, "Bound to request", "已绑定本请求", "已綁定本請求", "已綁定本請求",              \
-    "要求に紐づいています")                                                                            \
-  X(kEvidNote, "Issuer signature proves origin, not safety.", "机构签名只证明来源，不证明安全。",      \
-    "機構簽名只證明來源，不證明安全。", "機構簽名只證明來源，不證明安全。",                           \
-    "発行元の署名は出所を示すが安全性を保証しません。")                                               \
+  /* 对端公钥（设备只展示完整公钥，不识别企业或个人身份） */                                            \
+  X(kChannelPeerKey, "Counterparty key", "对端公钥", "對端公鑰", "對端公鑰", "相手の公開鍵")             \
   /* 请求处理菜单 */                                                                                  \
   X(kReqTitle, "How to handle this request?", "如何处理这个请求？", "如何處理這個請求？",              \
     "如何處理這個請求？", "この要求をどう扱いますか？")                                               \
@@ -117,7 +104,35 @@
   X(kSumOperation, "Operation", "操作", "操作", "操作", "操作")                                       \
   X(kSumObject, "Object", "对象", "對象", "對象", "対象")                                              \
   X(kSumAmount, "Amount", "金额", "金額", "金額", "金額")                                             \
+  X(kBitfsQuoteSign, "File quote", "文件报价", "檔案報價", "檔案報價", "ファイル見積もり") \
+  X(kBitfsAuthorizeSign, "Purchase authorization", "付款授权", "付款授權", "付款授權", "支払い許可") \
+  X(kBitfsDeliverySign, "Content delivery", "内容交付", "內容交付", "內容交付", "コンテンツ配信") \
+  X(kBitfsClaimSign, "Arbitration claim", "仲裁申请", "仲裁申請", "仲裁申請", "仲裁申請") \
+  X(kBitfsReceiptSign, "Arbitration receipt", "仲裁回执", "仲裁回執", "仲裁回執", "仲裁受領書") \
+  X(kBitfsRetrievalSign, "Content retrieval request", "内容取回请求", "內容取回請求", "內容取回請求", "コンテンツ取得要求") \
+  X(kBitfsResultSign, "Content retrieval result", "内容取回结果", "內容取回結果", "內容取回結果", "コンテンツ取得結果") \
+  X(kOpBitfsWire, "BitFS message signature", "BitFS 消息签名", "BitFS 訊息簽名", "BitFS 訊息簽名", "BitFS メッセージ署名") \
+  X(kBitfsKind, "BitFS message kind", "BitFS 消息类型", "BitFS 訊息類型", "BitFS 訊息類型", "BitFS メッセージ種別") \
+  X(kBitfsSeed, "Seed hash", "Seed 哈希", "Seed 雜湊", "Seed 雜湊", "Seed ハッシュ") \
+  X(kBitfsSeedPrice, "Seed price (sat)", "Seed 价格 (sat)", "Seed 價格 (sat)", "Seed 價格 (sat)", "Seed 価格 (sat)") \
+  X(kBitfsBlockPrice, "Block price (sat)", "区块价格 (sat)", "區塊價格 (sat)", "區塊價格 (sat)", "ブロック価格 (sat)") \
+  X(kBitfsQuote, "Quote identifier", "报价标识", "報價識別碼", "報價識別碼", "見積もり識別子") \
+  X(kBitfsRefund, "Refund transaction ID", "退款交易 ID", "退款交易 ID", "退款交易 ID", "返金取引 ID") \
+  X(kBitfsSequence, "Payment sequence", "付款序号", "付款序號", "付款序號", "支払い順序") \
+  X(kBitfsAuthorization, "Authorization identifier", "授权标识", "授權識別碼", "授權識別碼", "許可識別子") \
+  X(kBitfsClaim, "Claim identifier", "仲裁申请标识", "仲裁申請識別碼", "仲裁申請識別碼", "仲裁申請識別子") \
+  X(kBitfsArbiterAmount, "Arbiter amount (sat)", "仲裁金额 (sat)", "仲裁金額 (sat)", "仲裁金額 (sat)", "仲裁金額 (sat)") \
+  X(kBitfsResult, "Retrieval result", "取回结果", "取回結果", "取回結果", "取得結果") \
+  X(kChannelPeer, "Peer public key", "对方公钥", "對方公鑰", "對方公鑰", "相手の公開鍵") \
   X(kSumScope, "Scope", "授权范围", "授權範圍", "授權範圍", "許可範囲")                                \
+  X(kConnectAudience, "Audience", "接收方", "接收方", "接收方", "受信者") \
+  X(kConnectRequest, "Request ID", "请求编号", "請求編號", "請求編號", "要求 ID") \
+  X(kConnectIssued, "Issued (Unix)", "签发时间 (Unix)", "簽發時間 (Unix)", "簽發時間 (Unix)", "発行時刻 (Unix)") \
+  X(kConnectExpires, "Expires (Unix)", "到期时间 (Unix)", "到期時間 (Unix)", "到期時間 (Unix)", "有効期限 (Unix)") \
+  X(kConnectClaim, "Identity field", "身份字段", "身分欄位", "身分欄位", "識別情報") \
+  X(kConnectContentType, "Content type", "内容类型", "內容類型", "內容類型", "内容の種類") \
+  X(kConnectContentLength, "Content bytes", "内容字节数", "內容位元組數", "內容位元組數", "内容のバイト数") \
+  X(kConnectContentHash, "Content SHA256", "内容 SHA256", "內容 SHA256", "內容 SHA256", "内容 SHA256") \
   X(kSumLimits, "Limits", "限额", "限額", "限額", "上限")                                             \
   X(kSumRisks, "Warnings", "警告", "警告", "警告", "警告")                                            \
   X(kSumExcludes, "Not included", "不包含", "不包含", "不包含", "含まないもの")                       \
@@ -137,10 +152,6 @@
     "未知のスクリプト形式")                                                                           \
   X(kRiskPrivateChannel, "Private message content", "私密消息内容", "私密訊息內容", "私密訊息內容",      \
     "プライベートメッセージ")                                                                         \
-  X(kRiskExternalIssuer, "Unrecognised issuer", "未登记的签发机构", "未登記的簽發機構",                  \
-    "未登記的簽發機構", "未登録の発行元")                                                              \
-  X(kRiskTimeUnverified, "Expiry cannot be checked", "有效期无法核验", "有效期無法核驗",                  \
-    "有效期無法核驗", "有効期限を検証できません")                                                       \
   /* 会话决定 */                                                                                      \
   X(kGrantsTitle, "Session decisions", "会话决定", "會話決定", "會話決定", "セッション決定")             \
   X(kGrantsEmpty, "No session decisions yet", "暂无会话决定", "暫無會話決定", "暫無會話決定",           \
@@ -156,6 +167,9 @@
   /* 操作名称 */                                                                                      \
   X(kOpIdentityProve, "Prove identity", "身份证明", "身分證明", "身分證明", "本人確認")                   \
   X(kOpIdentityAuthorize, "Authorize intent", "意图授权", "意圖授權", "意圖授權", "意図の承認")           \
+  X(kIdentitySequence, "Identity sequence", "身份序号", "身分序號", "身分序號", "本人記録の順序") \
+  X(kOpNoiseProof, "Network handshake identity", "网络握手身份", "網路握手身分", "網絡握手身分", "ネットワーク本人確認") \
+  X(kOpPeerRecord, "Network identity record", "网络身份记录", "網路身分記錄", "網絡身分記錄", "ネットワーク本人記録") \
   X(kOpTxSign, "Sign transaction", "签署交易", "簽署交易", "簽署交易", "取引に署名")                     \
   X(kOpChannelPublic, "Channel public message", "Channel 公共消息", "Channel 公共訊息",                 \
     "Channel 公共訊息", "Channel 公開メッセージ")                                                     \
@@ -173,12 +187,22 @@
     "ローカル秘密を開封")                                                                             \
   X(kOpContentAttest, "Attest file digest", "文件摘要声明", "檔案摘要聲明", "檔案摘要聲明",              \
     "ファイルダイジェスト宣言")                                                                       \
+  X(kTxPayees, "Recipients", "收款方", "收款方", "收款方", "支払先")                                       \
+  X(kTxMorePayees, "more recipients not shown", "还有更多收款方未显示", "還有更多收款方未顯示",              \
+    "還有更多收款方未顯示", "別の支払先があります（未表示）")                                            \
+  X(kRiskHostEvidence, "Unspent status comes from the host and is not verified here",                     \
+    "未花费状态由主机提供，本机未验证", "未花費狀態由主機提供，本機未驗證",                              \
+    "未使用状態はホスト提供であり本機は検証していません", "ホスト提供の未使用状態は本機では検証されていません") \
+  X(kContentNotTx, "This does not authorise any payment or transaction",                              \
+    "本声明不授权任何付款或交易", "本聲明不授權任何付款或交易", "本聲明不授權任何付款或交易",          \
+    "この宣言は送金や取引を一切許可しません")                                                          \
+  X(kContentDigestLabel, "Statement digest", "声明摘要", "聲明摘要", "聲明摘要", "宣言ダイジェスト")      \
+  X(kContentDigestByHost, "Digest computed by the host, not verified here",                           \
+    "摘要由主机计算，本机未验证其来源", "摘要由主機計算，本機未驗證其來源",                            \
+    "摘要由主機計算，本機未驗證其來源", "摘要由ホスト側で計算されており、本機は出所を検証していません")   \
   X(kOpMigrationImport, "Import key", "迁入密钥", "匯入密鑰", "匯入密鑰", "鍵のインポート")              \
   X(kOpMigrationExport, "Export key", "迁回密钥", "匯出密鑰", "匯出密鑰", "鍵のエクスポート")            \
   /* 范围与权限 */                                                                                    \
-  X(kScopeReadOnly, "Read only", "只读", "唯讀", "唯讀", "読み取りのみ")                               \
-  X(kScopeSignTx, "Sign own transactions", "签署自己的交易", "簽署自己的交易", "簽署自己的交易",          \
-    "自身の取引に署名")                                                                               \
   X(kScopeSignMessage, "Sign messages", "签署消息", "簽署訊息", "簽署訊息", "メッセージに署名")           \
   X(kScopePay, "Send payments", "发送付款", "發送付款", "發送付款", "送金")                             \
   X(kScopePrivateRead, "Decrypt private content", "解密私密内容", "解密私密內容", "解密私密內容",        \
@@ -217,7 +241,6 @@
   X(kErrWrongKey, "Different key on device", "设备上是不同的密钥", "裝置上是不同的密鑰",                  \
     "裝置上是不同的密鑰", "デバイスに別の鍵があります")                                                 \
   X(kErrInvalidRequest, "Invalid request", "请求无效", "請求無效", "請求無效", "無効な要求")             \
-  X(kErrInvalidEvidence, "Invalid evidence", "证据无效", "證據無效", "證據無效", "無効な証拠")           \
   X(kErrRevoked, "Permission was withdrawn", "授权已被撤销", "授權已被撤銷", "授權已被撤銷",              \
     "許可が取り消されました")                                                                          \
   X(kErrDisconnected, "Host disconnected", "主机已断开", "主機已斷開", "主機已斷開", "ホスト切断")        \
@@ -235,6 +258,8 @@
   X(kMigVerifying, "Verifying key", "正在核对密钥", "正在核對密鑰", "正在核對密鑰", "鍵を検証中")         \
   X(kMigSaved, "Key stored on device", "密钥已存入设备", "密鑰已存入裝置", "密鑰已存入裝置",            \
     "鍵をデバイスに保存しました")                                                                      \
+  X(kMigNoOldKey, "Old key erased. Connect the browser to finish migration.", "旧私钥已擦除。连接浏览器完成迁移。", "舊私鑰已抹除。連接瀏覽器完成遷移。", "舊私鑰已抹除。連接瀏覽器完成遷移。", "旧鍵は消去済みです。ブラウザーに接続して移行を完了してください。") \
+  X(kMigResetWarning, "Confirm browser migration is complete before device reset.", "确认浏览器迁移已完成，再重置设备。", "確認瀏覽器遷移已完成，再重設裝置。", "確認瀏覽器遷移已完成，再重設裝置。", "ブラウザーの移行完了を確認してからデバイスを初期化してください。") \
   X(kMigStatusTitle, "Migration status", "迁移进度", "遷移進度", "遷移進度", "移行状況")                  \
   X(kMigStageHostPrepared, "Host prepared", "主机已准备", "主機已準備", "主機已準備", "ホスト準備完了")   \
   X(kMigStageDeviceStaged, "Staged on device", "设备已暂存", "裝置已暫存", "裝置已暫存",                \
@@ -296,6 +321,11 @@
   X(kBtnSelect, "Select", "选择", "選擇", "選擇", "選択")                                               \
   X(kBtnOpen, "Open", "打开", "開啟", "開啟", "開く")                                                   \
   X(kBtnBack, "Back", "返回", "返回", "返回", "戻る")                                                   \
+  X(kBtnScrollPrev, "Prev", "上翻", "上翻", "上翻", "前へ")                             \
+  X(kBtnScrollNext, "Next", "下翻", "下翻", "下翻", "次へ")                             \
+  X(kMustReadFirst, "Read the required items first",                              \
+    "请先逐项看过关键内容", "請先逐項看過關鍵內容", "請先逐項看過關鍵內容",              \
+    "先に必須項目を確認してください")                                                    \
   X(kBtnNext, "Next", "下一个", "下一個", "下一個", "次へ")                                            \
   X(kBtnDown, "Down", "下", "下", "下", "下")                                                          \
   X(kBtnHold, "Hold", "长按", "長按", "長按", "長押し")                                                 \
@@ -307,5 +337,36 @@
   X(kBtnEnter, "Next digit", "下一位", "下一位", "下一位", "次の桁")                                     \
   X(kBtnLess, "Less", "减少", "減少", "減少", "減らす")                                                 \
   X(kBtnMore2, "More", "增加", "增加", "增加", "増やす") \
+  ROCKEY_VLP_STRINGS(X)
+
+// 渠道额度固定文案，同一编译语言/字体提取流程。
+#define ROCKEY_VLP_STRINGS(X) \
+  X(kVlpDecisionOnce, "Once: allow or deny", "本次决定：允许或否决", "本次決定：允許或否決", "本次決定：允許或否決", "今回のみ：許可か拒否") \
+  X(kVlpDecisionSession, "This session: allow or deny", "本会话决定：允许或否决", "本會話決定：允許或否決", "本會話決定：允許或否決", "セッション：許可か拒否") \
+  X(kVlpDecisionToggle, "Tap mode/Hold OK", "切换/长按确认", "切換/長按確認", "切換/長按確認", "切替/長押し確認") \
+  X(kVlpGrantsPrevious, "Prev/Hold back", "上项/长按返回", "上項/長按返回", "上項/長按返回", "前/長押し戻る") \
+  X(kVlpGrantsCancel, "Cancel/Hold all", "撤销/长按全部", "撤銷/長按全部", "撤銷/長按全部", "取消/長押し全て") \
+  X(kVlpReview, "Wallet approval", "钱包确认", "錢包確認", "錢包確認", "ウォレット確認") \
+  X(kVlpChannel, "Channel", "渠道", "渠道", "渠道", "チャネル") \
+  X(kVlpOwner, "App / plugin", "应用或插件", "應用或插件", "應用或插件", "アプリ") \
+  X(kVlpSingleLimit, "Single limit (sats)", "单笔额度（聪）", "單筆額度（聰）", "單筆額度（聰）", "単筆上限") \
+  X(kVlpSessionLimit, "Session limit (sats)", "会话额度（聪）", "會話額度（聰）", "會話額度（聰）", "接続上限") \
+  X(kVlpUsed, "Used (sats)", "已消费（聪）", "已消費（聰）", "已消費（聰）", "使用済み") \
+  X(kVlpFee, "Fee (sats)", "手续费（聪）", "手續費（聰）", "手續費（聰）", "手数料") \
+  X(kVlpAmount, "Payment (sats)", "支付金额（聪）", "支付金額（聰）", "支付金額（聰）", "支払金額") \
+  X(kVlpChange, "Change", "找零", "找零", "找零", "お釣り") \
+  X(kVlpSingleExceeded, "Single exceeded", "单笔超额", "單筆超額", "單筆超額", "単筆超過") \
+  X(kVlpSessionExceeded, "Session exceeded", "会话超额", "會話超額", "會話超額", "接続超過") \
+  X(kVlpEnabled, "Enabled", "启用", "啟用", "啟用", "有効") \
+  X(kVlpKind, "App / plugin", "应用或插件", "應用或插件", "應用或插件", "アプリ") \
+  X(kVlpSession, "Session", "会话", "會話", "會話", "接続") \
+  X(kVlpPoolFamily, "Fee pool", "费用池", "費用池", "費用池", "費用プール") \
+  X(kVlpPoolStage, "Transaction stage", "交易阶段", "交易階段", "交易階段", "取引段階") \
+  X(kVlpFunding, "Funding", "资金存入", "資金存入", "資金存入", "資金預入") \
+  X(kVlpPoolState, "Cumulative state", "累计状态", "累計狀態", "累計狀態", "累計状態") \
+  X(kVlpPoolPaid, "Cumulative paid (sats)", "累计付款（聪）", "累計付款（聰）", "累計付款（聰）", "累計支払額") \
+  X(kVlpPoolLocked, "Locked in pool (sats)", "池内锁定（聪）", "池內鎖定（聰）", "池內鎖定（聰）", "プール預入額") \
+  X(kVlpRaise, "B: raise this session", "B：提高本会话额度", "B：提高本會話額度", "B：提高本會話額度", "B：接続上限増額") \
+  X(kVlpDenyScroll, "A: up / hold deny", "A：上翻／长按拒绝", "A：上翻／長按拒絕", "A：上翻／長按拒絕", "A：上／長押し拒否")
 
 #endif  // ROCKEY_I18N_STRINGS_H

@@ -12,7 +12,9 @@
 //  - PIN 只经实体按钮进入，不接受主机提供的 PIN；
 //  - 公钥放进 AAD，攻击者不能把封装换到别的公钥上；
 //  - 已有 Key 的设备拒绝不同 Key 覆盖，除非设备擦除；
-//  - 失败计数跨重启保存，递增等待，拔线不能恢复无限快速尝试。
+//  - 失败计数与"本次失败应等待的时长"跨重启保存，递增等待。设备没有可信时钟，
+//    所以落盘的是时长而不是时间戳：拔线重上电仍要等满，只是失败计数继续递增，
+//    不存在"拔线恢复无限快速尝试"的路径。
 #ifndef ROCKEY_STORE_KEYSTORE_H
 #define ROCKEY_STORE_KEYSTORE_H
 
@@ -23,6 +25,7 @@
 #include "crypto/secure.h"
 
 namespace rockey {
+namespace vlp { class ProvisionKeys; }
 namespace keystore {
 
 enum class Status : uint8_t {
@@ -67,13 +70,15 @@ class KeyStore {
   // 失败计数与等待
   static uint32_t FailCount();
   static uint32_t WaitMsRemaining(uint32_t nowMs);
-  static void NoteUnlockSuccess();
-  static void NoteUnlockFailure(uint32_t nowMs);
+  static bool NoteUnlockSuccess();
+  static bool NoteUnlockFailure(uint32_t nowMs);
 
   static uint32_t WaitMsForFailure(uint32_t failCount);
 
   // 设备擦除（需要 UI 独立物理确认后调用）
-  static bool Erase();
+  // A private migration controller preserves its public recovery marker while
+  // physically erasing the key, then durably records the erase outcome.
+  static bool Erase(bool preserveMigration = false);
   static bool GenerateDeviceSecret();
 
   // ── 设备外恢复备份 ────────────────────────────────────────────
@@ -94,8 +99,9 @@ class KeyStore {
   static Status DevInjectTestKey(const char* pinDigits, size_t pinLen);
 
  private:
+  friend class rockey::vlp::ProvisionKeys;
   static Status LoadRecord(uint8_t* rec, size_t recCap, size_t* recLen);
-  static Status WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32]);
+  static Status WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32], bool trustedMigration = false);
   static bool DeviceSecret(uint8_t out[32]);
 };
 

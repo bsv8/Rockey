@@ -3,6 +3,7 @@
 #include <string.h>
 
 extern "C" {
+#include "mbedtls/hkdf.h"
 #include "mbedtls/md.h"
 #include "mbedtls/sha256.h"
 }
@@ -36,39 +37,28 @@ void HmacSha256(const uint8_t* key, size_t keyLen, const uint8_t* msg, size_t ms
 
 void HkdfSha256(const uint8_t* ikm, size_t ikmLen, const uint8_t* salt, size_t saltLen,
                 const uint8_t* info, size_t infoLen, uint8_t* out, size_t outLen) {
-  // RFC5869：extract
-  uint8_t prk[kSha256Len];
-  uint8_t zeroSalt[kSha256Len];
-  if (!salt || saltLen == 0) {
-    secure::Wipe(zeroSalt, sizeof(zeroSalt));
-    HmacSha256(zeroSalt, sizeof(zeroSalt), ikm, ikmLen, prk);
-  } else {
-    HmacSha256(salt, saltLen, ikm, ikmLen, prk);
+  // RFC 5869。直接用 mbedTLS 的 HKDF，不再自己拼 expand。
+  //
+  // 原实现算出了 PRK 却在 expand 阶段用一把"全零密钥的全新 HMAC"开始，
+  // 从头到尾没有用 PRK 做过 HMAC 初始化 —— 于是输出只取决于 info。
+  // 后果是致命的：封装密钥 KEK'、本地秘密派生密钥、链路 c2s/s2c 密钥
+  // 全都退化成公开常量，任何知道公钥/盐/info 的人都能算出来，
+  // 而"任意同位数 PIN 都能解封"正是这么来的。
+  //
+  // mbedtls/hkdf.h 在 ESP-IDF 附带的 mbedtls 2.28 与 3.x 里都可用。
+  static const uint8_t kZeroSalt[kSha256Len] = {0};
+  const uint8_t* useSalt = (salt && saltLen) ? salt : kZeroSalt;
+  size_t useSaltLen = (salt && saltLen) ? saltLen : kSha256Len;
+  const mbedtls_md_info_t* md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+  if (!md) {
+    secure::Wipe(out, outLen);
+    return;
   }
-  // expand
-  uint8_t t[kSha256Len];
-  size_t tLen = 0;
-  uint8_t counter = 1;
-  size_t done = 0;
-  while (done < outLen) {
-    const mbedtls_md_info_t* infoMd = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-    mbedtls_md_context_t ctx;
-    mbedtls_md_init(&ctx);
-    mbedtls_md_setup(&ctx, infoMd, 1);
-    if (tLen) mbedtls_md_update(&ctx, t, tLen);
-    if (infoLen) mbedtls_md_update(&ctx, info, infoLen);
-    mbedtls_md_update(&ctx, &counter, 1);
-    mbedtls_md_finish(&ctx, t);
-    mbedtls_md_free(&ctx);
-    tLen = kSha256Len;
-    size_t n = outLen - done;
-    if (n > kSha256Len) n = kSha256Len;
-    memcpy(out + done, t, n);
-    done += n;
-    counter++;
+  int rc = mbedtls_hkdf(md, useSalt, useSaltLen, ikm, ikmLen, info, infoLen, out, outLen);
+  if (rc != 0) {
+    // 不允许"算不出来却当作成功"：调用方会把一段确定的垃圾当密钥用。
+    secure::Wipe(out, outLen);
   }
-  secure::Wipe(prk, sizeof(prk));
-  secure::Wipe(t, sizeof(t));
 }
 
 void Pbkdf2Sha256(const uint8_t* pw, size_t pwLen, const uint8_t* salt, size_t saltLen,

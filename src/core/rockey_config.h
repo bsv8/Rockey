@@ -66,9 +66,13 @@
 
 // ── 业务参数 ──────────────────────────────────────────────────────────
 #define ROCKEY_IDENTITY_CHALLENGE_LEN 32u
-#define ROCKEY_TX_MAX_INPUTS 64u
-#define ROCKEY_TX_MAX_OUTPUTS 64u
-#define ROCKEY_TX_MAX_TX_BYTES 100000u
+// 交易边界：输入/输出个数与单笔字节数。实际生效值在 src/ops/tx.h
+// （kMaxInputs/kMaxOutputs/kMaxTxBytes），那里从 ROCKEY_MAX_PLAINTEXT 推导
+// 并带 static_assert，保证原始交易能装进一条加密帧。两边必须一致：
+// 声明大于可实现就是宣称一个到不了的能力（有界分片传输未冻结）。
+#define ROCKEY_TX_MAX_INPUTS 16u
+#define ROCKEY_TX_MAX_OUTPUTS 32u
+#define ROCKEY_TX_MAX_TX_BYTES 1016u
 #define ROCKEY_LOCAL_SECRET_SCOPE_MAX 64u
 
 // ── 一次性导出 ────────────────────────────────────────────────────────
@@ -82,6 +86,13 @@
 #endif
 #if defined(ROCKEY_DEV_BUTTON_API) && ROCKEY_BUILD_RELEASE
 #error "ROCKEY_DEV_BUTTON_API 与发布构建互斥"
+#endif
+
+#if defined(ROCKEY_E2E_ISOLATED) && (ROCKEY_BUILD_RELEASE || !defined(ROCKEY_DEV_BUTTON_API) || !defined(ROCKEY_DEV_TEST_KEY))
+#error "E2E storage requires test-only firmware"
+#endif
+#if defined(ROCKEY_DEV_BUTTON_API) && !defined(ROCKEY_E2E_ISOLATED)
+#error "Button injection requires isolated E2E storage"
 #endif
 
 #endif  // ROCKEY_CORE_CONFIG_H

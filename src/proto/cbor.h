@@ -94,11 +94,14 @@ class Reader {
   size_t pos_ = 0;
   bool ok_ = true;
   uint8_t depth_ = 0;
-  size_t itemsLeft_ = 0;
+  size_t mapItemsLeft_ = 0;   // 键 + 值各占一格，由 MapKey 扣减
+  size_t arrItemsLeft_ = 0;   // 只由 TakeValue 扣减
   bool inMap_ = false;
   bool hasLastKey_ = false;
   size_t lastKeyLen_ = 0;
   char lastKey_[kMaxTextKeyLen] = {0};
+
+  void TakeValue();
 };
 
 }  // namespace proto

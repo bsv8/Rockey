@@ -13,6 +13,7 @@
 #include "store/keystore.h"
 #include "proto/cbor.h"
 #include "store/vault_fs.h"
+#include "ui/text.h"
 
 namespace rockey {
 namespace ops {
@@ -22,7 +23,6 @@ using proto::Writer;
 namespace {
 
 constexpr uint32_t kSupportedOpVersion = 1;
-constexpr uint8_t kProtocolChannelV1 = 1;
 
 void SafeCopy(char* dst, size_t cap, const char* src) {
   if (!src) {
@@ -33,18 +33,12 @@ void SafeCopy(char* dst, size_t cap, const char* src) {
   dst[cap - 1] = '\0';
 }
 
-void HashPrefix(uint16_t opId, uint8_t out[16]) {
-  uint8_t buf[3] = {static_cast<uint8_t>(opId >> 8), static_cast<uint8_t>(opId), 0x00};
-  uint8_t h[32];
-  digest::Sha256(buf, sizeof(buf), h);
-  memcpy(out, h, 16);
-}
-
 const char* OpString(OpId op) {
   switch (op) {
     case OpId::kIdentityProve: return "kOpIdentityProve";
     case OpId::kIdentityAuthorize: return "kOpIdentityAuthorize";
     case OpId::kTxSign: return "kOpTxSign";
+    case OpId::kTxFeepoolSign: return "kOpTxFeepoolSign";
     case OpId::kChannelPublic: return "kOpChannelPublic";
     case OpId::kChannelHash: return "kOpChannelHash";
     case OpId::kChannelPrivate: return "kOpChannelPrivate";
@@ -74,6 +68,10 @@ bool LookupOp(const char* name, size_t len, OpId* out) {
       {"identity.prove", OpId::kIdentityProve},
       {"identity.authorize", OpId::kIdentityAuthorize},
       {"tx.p2pkh-sign", OpId::kTxSign},
+      // 费用池签名：只在脚本/阶段/签名规则冻结后才会支持。登记 op 名是为了
+      // 让主机得到"已知但当前不可用"的明确答复，而不是撞上一个未知操作的
+      // 模糊错误；Prepare 对它直接拒绝，不解析任何字段（见 Prepare 内门禁）。
+      {"tx.feepool-sign", OpId::kTxFeepoolSign},
       {"channel.public-message", OpId::kChannelPublic},
       {"channel.hash-request", OpId::kChannelHash},
       {"channel.private-message", OpId::kChannelPrivate},
@@ -82,7 +80,6 @@ bool LookupOp(const char* name, size_t len, OpId* out) {
       {"secret.seal", OpId::kSecretSeal},
       {"secret.open", OpId::kSecretOpen},
       {"content.attest-digest", OpId::kContentAttest},
-      {"evidence.receive", OpId::kEvidenceReceive},
       {"migration.import", OpId::kMigrationImport},
       {"migration.export", OpId::kMigrationExport},
       {"migration.status", OpId::kMigrationStatus},
@@ -91,6 +88,26 @@ bool LookupOp(const char* name, size_t len, OpId* out) {
   for (const auto& e : kTable) {
     if (strlen(e.n) == len && memcmp(e.n, name, len) == 0) {
       *out = e.id;
+      return true;
+    }
+  }
+  return false;
+}
+
+// 协议名 -> 稳定的一字节 id。持续授权按这个 id 绑定到具体协议，
+// 这样"允许 protocol-a 的消息签名"不会命中 protocol-b 的请求。
+// 新协议必须在这里显式登记；未登记的协议 Prepare 会拒绝。
+bool ProtocolId(const char* name, uint8_t* id) {
+  struct Entry { const char* n; uint8_t id; };
+  static const Entry kTable[] = {
+      {"messaging", 1},
+      {"payment-request", 2},
+      {"auth", 3},
+      {"storage", 4},
+  };
+  for (const auto& e : kTable) {
+    if (strcmp(e.n, name) == 0) {
+      *id = e.id;
       return true;
     }
   }
@@ -115,8 +132,6 @@ policy::Category CategoryOf(OpId op) {
       return policy::Category::kLocalSecret;
     case OpId::kContentAttest:
       return policy::Category::kContent;
-    case OpId::kEvidenceReceive:
-      return policy::Category::kEvidence;
     case OpId::kMigrationImport:
     case OpId::kMigrationExport:
     case OpId::kMigrationStatus:
@@ -127,9 +142,23 @@ policy::Category CategoryOf(OpId op) {
   }
 }
 
-// 设备生成的摘要标签（不用主机给的说明文字）
-void DigestLabel(uint8_t digest[32], char* out, size_t cap) {
-  digest::ToHex(digest, 32, out, cap);
+// 匹配键缓冲：标签、文本一律带 NUL 追加，长度由 strlen 给出。
+// 不用硬编码长度 —— "rockey:xxx:v1\0" 这种手数很容易数错，
+// 数错就是越界读或把分隔符算进摘要里。
+bool KeyBufText(uint8_t* buf, size_t cap, size_t* n, const char* text) {
+  size_t t = strlen(text);
+  if (*n + t + 1 > cap) return false;
+  memcpy(buf + *n, text, t);
+  *n += t;
+  buf[(*n)++] = 0;
+  return true;
+}
+
+bool KeyBufBytes(uint8_t* buf, size_t cap, size_t* n, const uint8_t* data, size_t len) {
+  if (*n + len > cap) return false;
+  memcpy(buf + *n, data, len);
+  *n += len;
+  return true;
 }
 
 void AddOperationChapter(ReviewDoc* doc, OpId op) {
@@ -155,6 +184,34 @@ bool ContentDigest(const char* purpose, const char* digestHexLower, uint8_t out[
   size_t dl = strlen(digestHexLower);
   memcpy(buf + n, digestHexLower, dl);
   n += dl;
+  digest::Sha256d(buf, n, out);
+  return true;
+}
+
+// ── 身份/意图证明摘要（冻结） ──────────────────────────────────
+// statementDigest = SHA256d( UTF8("rockey:identity:<kind>:v1") || 0x00
+//                         || pubkey(33) || sessionId(u32be) || sessionEpoch(u8)
+//                         || challenge(32) || 0x00 || UTF8(purpose) )
+// kind 取 "prove" 或 "authorize"。域标签与交易/通道/内容摘要不同，
+// 所以这里产生的签名不能被当成任何其它操作的签名来用。
+bool IdentityProofDigest(const ExecContext& e, uint8_t out[32]) {
+  uint8_t buf[256];
+  size_t n = 0;
+  static const char* kProveLabel = "rockey:identity:prove:v1";
+  static const char* kAuthLabel = "rockey:identity:authorize:v1";
+  const char* label =
+      (e.op == OpId::kIdentityAuthorize) ? kAuthLabel : kProveLabel;
+  if (!KeyBufText(buf, sizeof(buf), &n, label)) return false;
+  if (!KeyBufBytes(buf, sizeof(buf), &n, keystore::KeyStore::PublicKey(), 33)) return false;
+  uint8_t sid[4] = {static_cast<uint8_t>(e.match.sessionId >> 24),
+                    static_cast<uint8_t>(e.match.sessionId >> 16),
+                    static_cast<uint8_t>(e.match.sessionId >> 8),
+                    static_cast<uint8_t>(e.match.sessionId)};
+  if (!KeyBufBytes(buf, sizeof(buf), &n, sid, 4)) return false;
+  uint8_t ep = e.match.sessionEpoch;
+  if (!KeyBufBytes(buf, sizeof(buf), &n, &ep, 1)) return false;
+  if (!KeyBufBytes(buf, sizeof(buf), &n, e.challenge, 32)) return false;
+  if (!KeyBufText(buf, sizeof(buf), &n, e.purpose)) return false;
   digest::Sha256d(buf, n, out);
   return true;
 }
@@ -218,17 +275,59 @@ bool ChannelPrivateDigest(const char* protocolType, const uint8_t* msg, size_t m
   return true;
 }
 
+// ── Channel seal/open 的密钥协商（域隔离，暂定，待与 Keymaster 固定向量） ──
+//
+// 这里必须是**确定性**的对称派生，不能每次生成随机临时密钥：
+//  - seal 侧随机派生出来的公钥没有回给对端，对端无法解密；
+//  - open 侧再随机一次就永远解不开上一次的密文。
+//
+// 现行做法：X25519 静态-静态 ECDH。
+//   设备侧私钥 = HKDF-SHA256(业务私钥, salt="rockey:channel:x25519:key:v1",
+//                            info = UTF8(protocolType), 32B)，并清高位
+//   设备侧公钥 = X25519(base, devicePriv)
+//   对端公钥   = SHA256(peer33) 清高位后当作 X25519 公钥点
+//   共享秘密   = X25519(devicePriv, peerPubPoint)
+//   会话密钥   = HKDF-SHA256(shared, salt=对端公钥, info="rockey:channel:seal:v1"
+//                                   || 0x00 || protocolType, 32B)
+//
+// 这套映射是本仓库的暂定定义，**尚未与 Keymaster 的 Channel 协议对齐**；
+// 对齐前不得据此声称软件↔设备互通（协议草案 §5 要求以固定向量为准）。
+bool ChannelX25519Priv(const char* protocolType, uint8_t priv[32]) {
+  uint8_t info[64];
+  size_t n = 0;
+  static const char* kLabel = "rockey:channel:x25519:key:v1";
+  size_t l = strlen(kLabel);
+  memcpy(info, kLabel, l);
+  n = l;
+  info[n++] = 0;
+  size_t pl = strlen(protocolType);
+  if (n + pl >= sizeof(info)) return false;
+  memcpy(info + n, protocolType, pl);
+  n += pl;
+  digest::HkdfSha256(keystore::KeyStore::PrivateKey(), 32, nullptr, 0, info, n, priv, 32);
+  priv[31] &= 127;
+  priv[0] &= 248;
+  secure::Wipe(info, sizeof(info));
+  return true;
+}
+
+// 对方公钥 -> X25519 点。X25519 私钥夹紧后不能推出任何公钥形式，
+// 所以这里用 SHA256(压缩公钥) 映射，与 Keymaster 侧必须用同一条规则。
+void ChannelPeerPoint(const uint8_t peer33[33], uint8_t out[32]) {
+  digest::Sha256(peer33, 33, out);
+  out[31] &= 127;
+}
+
 bool ChannelSealKey(const uint8_t peer33[33], const char* protocolType, uint8_t out[32]) {
-  uint8_t xpriv[32], xpub[32], shared[32];
-  rand::Fill(xpriv, 32);
-  x25519::PublicFromPrivate(xpriv, xpub);
+  if (!peer33 || !protocolType) return false;
+  uint8_t devicePriv[32];
+  uint8_t peerPoint[32];
+  uint8_t shared[32];
+  if (!ChannelX25519Priv(protocolType, devicePriv)) return false;
+  ChannelPeerPoint(peer33, peerPoint);
   bool ok = false;
-  // 用对方公钥的 SHA-256 前 32 字节映射到 Curve25519（双方必须一致，见协议规范）
-  uint8_t h[32];
-  digest::Sha256(peer33, 33, h);
-  h[31] &= 127;
-  if (x25519::Shared(xpriv, h, shared)) {
-    uint8_t info[64];
+  if (x25519::Shared(devicePriv, peerPoint, shared)) {
+    uint8_t info[80];
     size_t n = 0;
     static const char* kLabel = "rockey:channel:seal:v1";
     size_t l = strlen(kLabel);
@@ -236,19 +335,20 @@ bool ChannelSealKey(const uint8_t peer33[33], const char* protocolType, uint8_t 
     n = l;
     info[n++] = 0;
     size_t pl = strlen(protocolType);
-    memcpy(info + n, protocolType, pl);
-    n += pl;
-    digest::HkdfSha256(shared, 32, nullptr, 0, info, n, out, 32);
-    ok = true;
+    if (n + pl < sizeof(info)) {
+      memcpy(info + n, protocolType, pl);
+      n += pl;
+      // salt 绑定对端公钥：换对端就换密钥
+      digest::HkdfSha256(shared, 32, peer33, 33, info, n, out, 32);
+      ok = true;
+    }
+    secure::Wipe(shared, sizeof(shared));
   }
-  secure::Wipe(shared, sizeof(shared));
-  secure::Wipe(xpriv, sizeof(xpriv));
+  secure::Wipe(devicePriv, sizeof(devicePriv));
   return ok;
 }
 
 // ── 迁移记录（公开进度，不含秘密） ────────────────────────────────
-constexpr size_t kMigRecMax = 320;
-
 enum class MigStage : uint8_t {
   kNone = 0,
   kHostPrepared,
@@ -305,7 +405,6 @@ i18n::Str ErrorString(ErrorCode e) {
     case ErrorCode::kVersionMismatch: return i18n::Str::kErrVersionMismatch;
     case ErrorCode::kWrongKey: return i18n::Str::kErrWrongKey;
     case ErrorCode::kInvalidRequest: return i18n::Str::kErrInvalidRequest;
-    case ErrorCode::kInvalidEvidence: return i18n::Str::kErrInvalidEvidence;
     case ErrorCode::kDeniedOnce: return i18n::Str::kStatusDenied;
     case ErrorCode::kDeniedSession: return i18n::Str::kStatusDenied;
     case ErrorCode::kRevoked: return i18n::Str::kErrRevoked;
@@ -400,14 +499,27 @@ struct FieldCtx {
 };
 
 // 按 operation 解析一个键；未知键一律拒绝，防止降级夹带
+//
+// 所有**主机提供的文本**（purpose / protocolType / scope / fileName / digestHex）
+// 都从这一个入口进设备，所以 UTF-8 清洗、长度上限与缺字检测也集中在同一处：
+//外部正文整章接入已撤销（Markdown/信用长文归 Keymaster），但实际字段仍会
+// 带上主机给的字节，非法 UTF-8、控制字符、双向覆盖和缺字必须在进评审文档前
+// 处理掉，并且缺字要可见（RK-05），不能静默替换后当成已核验内容。
 bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
   ExecContext& e = *fc.exec;
   auto txt = [&](char* dst, size_t cap) -> bool {
     size_t n = 0;
     const char* v = r.Text(&n);
     if (!v || n == 0 || n >= cap) return false;
-    memcpy(dst, v, n);
-    dst[n] = '\0';
+    char clean[256];
+    SanitizeStats st;
+    SanitizeResult sr = SanitizeUtf8(v, n, clean, sizeof(clean), ROCKEY_MAX_DYNAMIC_TEXT, &st);
+    if (sr == SanitizeResult::kInvalid) return false;  // 无法解释的字节不当字段收
+    size_t cl = strlen(clean);
+    if (cl == 0 || cl >= cap) return false;
+    memcpy(dst, clean, cl + 1);
+    // 缺字/被清洗的字符必须在阅读页可见（RK-05）
+    if (fc.doc) fc.doc->NoteDynamicText(clean, cl, st);
     return true;
   };
   auto bytes = [&](uint8_t* dst, size_t cap, size_t* outLen) -> bool {
@@ -438,7 +550,7 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
         // 只支持 BSV 主网（版本字节 0x00）
         return net == 0x00;
       }
-      if (klen == 6 && memcmp(k, "rawTx", 6) == 0) {
+      if (klen == 5 && memcmp(k, "rawTx", 5) == 0) {
         size_t n = 0;
         const uint8_t* v = r.Bytes(&n);
         if (!v || n == 0 || n > kMaxTxBytes) return false;
@@ -463,11 +575,11 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
             size_t fklen = 0;
             const char* fk = r.MapKey(&fklen);
             if (!fk) return false;
-            if (fklen == 7 && memcmp(fk, "proven", 6) == 0) {
+            if (fklen == 6 && memcmp(fk, "proven", 6) == 0) {
               pool[i].provenOnChain = r.Bool();
             } else if (fklen == 8 && memcmp(fk, "satoshis", 8) == 0) {
               pool[i].satoshis = static_cast<uint64_t>(r.Uint());
-            } else if (fklen == 5 && memcmp(fk, "script", 6) == 0) {
+            } else if (fklen == 6 && memcmp(fk, "script", 6) == 0) {
               size_t n = 0;
               const uint8_t* v = r.Bytes(&n);
               if (!v || n == 0 || n > kMaxScriptLen) return false;
@@ -534,6 +646,10 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
         memcpy(e.senderPub, v, 33);
         return true;
       }
+      if (klen == 6 && memcmp(k, "sealed", 6) == 0 && op == OpId::kChannelOpen) {
+        // channel.open 的密文字段名与 channel.seal 的输出保持一致
+        return bytes(e.ciphertext, sizeof(e.ciphertext), &e.ciphertextLen);
+      }
       if (klen == 10 && memcmp(k, "ciphertext", 10) == 0) {
         return bytes(e.ciphertext, sizeof(e.ciphertext), &e.ciphertextLen);
       }
@@ -563,7 +679,9 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
       }
       if (klen == 6 && memcmp(k, "sealed", 6) == 0) {
         size_t pairs = r.MapBegin();
-        if (!r.ok() || pairs != 4) return false;
+        // v3 信封固定 5 个字段：version / keySource / saltHex / nonceHex / ciphertextHex。
+        // 写 4 会让设备自己 seal 出来的密文永远解不开（迁移后旧数据也就打不开）。
+        if (!r.ok() || pairs != 5) return false;
         bool haveV = false, haveKs = false, haveSalt = false, haveNonce = false, haveCt = false;
         char keySource[32] = {0};
         uint64_t version = 0;
@@ -571,7 +689,7 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
           size_t fklen = 0;
           const char* fk = r.MapKey(&fklen);
           if (!fk) return false;
-          if (fklen == 14 && memcmp(fk, "ciphertextHex", 13) == 0) {
+          if (fklen == 13 && memcmp(fk, "ciphertextHex", 13) == 0) {
             char hex[900];
             if (!txt(hex, sizeof(hex))) return false;
             size_t n = 0;
@@ -593,7 +711,7 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
               return false;
             }
             haveNonce = true;
-          } else if (fklen == 8 && memcmp(fk, "saltHex", 7) == 0) {
+          } else if (fklen == 7 && memcmp(fk, "saltHex", 7) == 0) {
             char hex[64];
             if (!txt(hex, sizeof(hex))) return false;
             size_t n = 0;
@@ -629,35 +747,15 @@ bool ReadField(FieldCtx& fc, OpId op, const char* k, size_t klen, Reader& r) {
       if (klen == 8 && memcmp(k, "fileName", 8) == 0) return txt(e.filename, sizeof(e.filename));
       return false;
     }
-    case OpId::kEvidenceReceive: {
-      if (klen == 8 && memcmp(k, "subjectPub", 10) == 0) {
-        size_t n = 0;
-        const uint8_t* v = r.Bytes(&n);
-        if (!v || n != 33 || !secp::ValidatePubkey(v)) return false;
-        memcpy(e.subjectPub, v, 33);
-        return true;
-      }
-      if (klen == 5 && memcmp(k, "nonce", 5) == 0) {
-        size_t n = 0;
-        const uint8_t* v = r.Bytes(&n);
-        if (!v || n != 32) return false;
-        memcpy(e.evidenceNonce, v, 32);
-        return true;
-      }
-      if (klen == 12 && memcmp(k, "ciphertext", 10) == 0) {
-        return bytes(e.ciphertext, sizeof(e.ciphertext), &e.ciphertextLen);
-      }
-      return false;
-    }
     case OpId::kMigrationImport: {
-      if (klen == 9 && memcmp(k, "commitment", 10) == 0) {
+      if (klen == 10 && memcmp(k, "commitment", 10) == 0) {
         // 迁移承诺：SHA256d("rockey:migration:import:v1" || priv) 主机可自证
         size_t n = 0;
         const uint8_t* v = r.Bytes(&n);
         if (!v || n != 32) return false;
         return true;
       }
-      if (klen == 6 && memcmp(k, "privKey", 7) == 0) {
+      if (klen == 7 && memcmp(k, "privKey", 7) == 0) {
         size_t n = 0;
         const uint8_t* v = r.Bytes(&n);
         if (!v || n != 32 || !secp::ValidatePriv(v)) return false;
@@ -686,7 +784,7 @@ bool ValidateProtocol(const char* p) {
 }  // namespace
 
 PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, ReviewDoc* doc,
-                     ExecContext* exec) {
+                     ExecContext* exec, const uint8_t commitment[32]) {
   doc->Reset();
   *exec = ExecContext{};
   (void)requestId;
@@ -716,6 +814,14 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       memcpy(name, v, n);
       name[n] = '\0';
       if (!LookupOp(name, n, &opId)) return PrepareStatus::kUnsupported;
+      // ── 费用池冻结门禁（最早识别点） ──────────────────────────────
+      // 费用池的脚本、阶段、双方公钥顺序、锁定/退款条件与状态证据都没有冻结
+      // （VLP §3 门禁），因此冻结前：
+      //  - 一识别出 op 就拒绝，不再解析任何字段，也不发明 wire 字段；
+      //  - 不套用 tx.p2pkh-sign 的 P2PKH 语义（池脚本不是 P2PKH）；
+      //  - 明确返回 unsupported，主机与用户看到"不可用"而不是模糊失败。
+      // 真正的解析器要等 B1 冻结的对象/金额/锁定/状态证据到位后再实现。
+      if (opId == OpId::kTxFeepoolSign) return PrepareStatus::kUnsupported;
       haveOp = true;
       continue;
     }
@@ -736,6 +842,21 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
   exec->category = CategoryOf(opId);
   exec->match.category = static_cast<uint8_t>(exec->category);
   exec->match.operation = static_cast<uint8_t>(opId);
+  // 请求承诺（由 App 从信封复制进来）参与授权匹配：
+  // 持续授权只覆盖它被承诺过的那个具体请求。
+  memcpy(exec->match.commitment, commitment, 16);
+  // 方向：seal 是设备发出去，open 是收进来；两者绝不能共用一条授权
+  exec->match.direction = static_cast<uint8_t>(
+      opId == OpId::kChannelSeal ? policy::Direction::kOutbound : policy::Direction::kInbound);
+  // 协议：必须来自已登记的协议名，未登记直接拒绝而不是当成"无协议"
+  if (exec->protocolType[0]) {
+    uint8_t pid = 0;
+    if (!ProtocolId(exec->protocolType, &pid)) return PrepareStatus::kMalformed;
+    exec->match.protocol = pid;
+  }
+  // 交易解析要靠设备自己的公钥判定找零归属与前序是否属于自己；
+  // 不填就是空指针解引用，且等于放弃这项核对。
+  if (opId == OpId::kTxSign) exec->tx.pub33 = keystore::KeyStore::PublicKey();
 
   // ── 迁移专用状态与冲突检查 ──────────────────────────────────────
   MigRecord mig;
@@ -764,32 +885,69 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       doc->AddChapter(i18n::T(i18n::Str::kSumScope), kChapterRequired);
       snprintf(line, sizeof(line), "%s\n%s", i18n::T(i18n::Str::kScopeSignMessage), exec->purpose);
       doc->AppendLine(line);
-      exec->match.objectHash[0] = 0;
-      memcpy(exec->match.objectHash, exec->challenge, 16);
+      // 匹配键绑定 challenge 与用途，换一个用途就是另一个授权
+      {
+        uint8_t buf[128];
+        size_t n = 0;
+        if (!KeyBufText(buf, sizeof(buf), &n, "rockey:identity:v1") ||
+            !KeyBufBytes(buf, sizeof(buf), &n, exec->challenge, 32) ||
+            !KeyBufText(buf, sizeof(buf), &n, exec->purpose)) {
+          return PrepareStatus::kMalformed;
+        }
+        uint8_t h[32];
+        digest::Sha256(buf, n, h);
+        memcpy(exec->match.objectHash, h, 16);
+      }
       break;
     }
     case OpId::kTxSign: {
       TxReview rv = ReviewTx(exec->tx);
       if (!rv.ok) return PrepareStatus::kMalformed;
-      char buf[96];
+      char buf[128];
       doc->AddChapter(i18n::T(i18n::Str::kSumObject), kChapterRequired);
-      snprintf(buf, sizeof(buf), "%s %lu", i18n::T(i18n::Str::kAmountSats),
-               static_cast<unsigned long>(rv.totalOut - rv.changeSats));
+      snprintf(buf, sizeof(buf), "%s %llu", i18n::T(i18n::Str::kAmountSats),
+               static_cast<unsigned long long>(rv.totalOut - rv.changeSats));
       doc->AddSummary(i18n::T(i18n::Str::kSumAmount), buf);
-      snprintf(buf, sizeof(buf), "%s %lu", i18n::T(i18n::Str::kAmountSats),
-               static_cast<unsigned long>(rv.fee));
+      snprintf(buf, sizeof(buf), "%s %llu", i18n::T(i18n::Str::kAmountSats),
+               static_cast<unsigned long long>(rv.fee));
       doc->AddSummary(i18n::T(i18n::Str::kSumLimits), buf);
       snprintf(buf, sizeof(buf), "%s", rv.changeAddress);
       doc->AddSummary(i18n::T(i18n::Str::kSumScope), buf);
-      if (rv.anyUnproven) doc->AddRisk(Risk::kUnverifiedInputs);
+
+      // 逐项付款明细：地址与金额都由设备从待签交易的输出脚本解出。
+      // 只显示"支付总额"是不够的 —— 用户看不到钱付给谁。
+      doc->AddChapter(i18n::T(i18n::Str::kTxPayees), kChapterRequired);
+      for (uint32_t i = 0; i < rv.payRecorded; ++i) {
+        // 由 hash160 反推 P2PKH 地址（版本字节固定为主网）
+        char addr[40];
+        if (P2pkhAddressFromHash160(rv.pays[i].hash160, addr, sizeof(addr))) {
+          snprintf(buf, sizeof(buf), "%s\n%s %llu", addr, i18n::T(i18n::Str::kAmountSats),
+                   static_cast<unsigned long long>(rv.pays[i].satoshis));
+        } else {
+          snprintf(buf, sizeof(buf), "-");
+        }
+        doc->AppendLine(buf);
+      }
+      if (rv.truncatedPays) doc->AppendLine(i18n::T(i18n::Str::kTxMorePayees));
+
+      // 前序证据：主机的 proven 布尔值只决定要不要显示"未验证"，
+      // 绝不会因为主机说 true 就把风险提示去掉（需求 §5 / §6.3）。
       doc->AddRisk(Risk::kPaysOther);
       doc->AddChapter(i18n::T(i18n::Str::kSumRisks), kChapterRequired | kChapterWarning);
-      if (rv.anyUnproven) doc->AppendLine(i18n::T(i18n::Str::kRiskUnverifiedInputs));
+      // 无论主机把 proven 标成什么，都固定显示这一行：
+      // 设备只核对了字节与声明自洽，没有验证链上未花费状态。
+      doc->AppendLine(i18n::T(i18n::Str::kRiskHostEvidence));
+      if (rv.anyUnproven) {
+        doc->AddRisk(Risk::kUnverifiedInputs);
+        doc->AppendLine(i18n::T(i18n::Str::kRiskUnverifiedInputs));
+      }
       doc->AppendLine(i18n::T(i18n::Str::kRiskPaysOther));
       doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
       doc->AppendLine(i18n::T(i18n::Str::kScopePrivateRead));
       doc->AppendLine(i18n::T(i18n::Str::kScopePrivateWrite));
       memcpy(exec->match.objectHash, rv.sighash, 16);
+      // 本次涉及的金额（付给别人的输出总额，不含找零），供会话授权预算判定
+      exec->valueSats = rv.totalOut - rv.changeSats;
       break;
     }
     case OpId::kChannelPublic:
@@ -799,9 +957,18 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
     case OpId::kChannelOpen: {
       doc->AddChapter(i18n::T(i18n::Str::kSumObject), kChapterRequired);
       doc->AddSummary(i18n::T(i18n::Str::kSumScope), exec->protocolType);
+      // 对端公钥必须齐备：seal 用 recipientPub，open 用 senderPub。
+      // 交叉填写会让授权落到错误的对手方上。
+      if (opId == OpId::kChannelSeal) {
+        if (!exec->peerPub[0]) return PrepareStatus::kMalformed;
+        if (exec->senderPub[0]) return PrepareStatus::kMalformed;
+      } else if (opId == OpId::kChannelOpen) {
+        if (!exec->senderPub[0]) return PrepareStatus::kMalformed;
+        if (exec->peerPub[0]) return PrepareStatus::kMalformed;
+      }
       if (exec->peerPub[0] || exec->senderPub[0]) {
         digest::ToHex(exec->peerPub[0] ? exec->peerPub : exec->senderPub, 33, line, sizeof(line));
-        doc->AddSummary(i18n::T(i18n::Str::kEvidSubject), line);
+        doc->AddSummary(i18n::T(i18n::Str::kChannelPeerKey), line);
       }
       doc->AddChapter(i18n::T(i18n::Str::kSumRisks), kChapterRequired | kChapterWarning);
       if (CategoryOf(opId) == policy::Category::kChannel) {
@@ -813,7 +980,46 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
       doc->AppendLine(i18n::T(i18n::Str::kScopePay));
       doc->AppendLine(i18n::T(i18n::Str::kScopePrivateWrite));
-      if (exec->messageLen) memcpy(exec->match.objectHash, exec->message, 16);
+      // 匹配键绑定协议、对端公钥与设备自算的消息摘要。
+      // 用消息原文前 16 字节有两个问题：open 没有 message 时会全零，
+      // 而且"允许对 A 说这句话"会顺带允许对 A 说任何别的话。
+      {
+        uint8_t buf[160];
+        size_t n = 0;
+        if (!KeyBufText(buf, sizeof(buf), &n, "rockey:channel:v1") ||
+            !KeyBufText(buf, sizeof(buf), &n, exec->protocolType) ||
+            !KeyBufBytes(buf, sizeof(buf), &n, exec->peerPub[0] ? exec->peerPub : exec->senderPub,
+                          33)) {
+          return PrepareStatus::kMalformed;
+        }
+        uint8_t dg[32];
+        switch (opId) {
+          case OpId::kChannelPublic:
+            ChannelPublicDigest(exec->protocolType, exec->message, exec->messageLen, dg);
+            break;
+          case OpId::kChannelHash:
+            ChannelHashDigest(exec->protocolType, exec->challenge, dg);
+            break;
+          case OpId::kChannelPrivate:
+            ChannelPrivateDigest(exec->protocolType, exec->message, exec->messageLen, dg);
+            break;
+          case OpId::kChannelSeal:
+            // seal 的对象是**明文**：正常请求根本没有 ciphertext，
+            // 早先按密文处理会让每个合法的 seal 请求都变成 malformed。
+            if (!exec->messageLen) return PrepareStatus::kMalformed;
+            digest::Sha256(exec->message, exec->messageLen, dg);
+            break;
+          default:
+            // open 的对象是密文
+            if (!exec->ciphertextLen) return PrepareStatus::kMalformed;
+            digest::Sha256(exec->ciphertext, exec->ciphertextLen, dg);
+            break;
+        }
+        if (!KeyBufBytes(buf, sizeof(buf), &n, dg, 32)) return PrepareStatus::kMalformed;
+        uint8_t h[32];
+        digest::Sha256(buf, n, h);
+        memcpy(exec->match.objectHash, h, 16);
+      }
       break;
     }
     case OpId::kSecretSeal:
@@ -821,17 +1027,34 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       doc->AddChapter(i18n::T(i18n::Str::kSumObject), kChapterRequired);
       doc->AddSummary(i18n::T(i18n::Str::kSumScope), exec->scope);
       char lenBuf[32];
-      snprintf(lenBuf, sizeof(lenBuf), "%lu",
-               static_cast<unsigned long>(opId == OpId::kSecretSeal ? exec->plaintextLen
-                                                                    : exec->sealed.ciphertextLen));
+      snprintf(lenBuf, sizeof(lenBuf), "%llu",
+               static_cast<unsigned long long>(opId == OpId::kSecretSeal
+                                                   ? exec->plaintextLen
+                                                   : exec->sealed.ciphertextLen));
       doc->AddSummary(i18n::T(i18n::Str::kSumLimits), lenBuf);
       doc->AddChapter(i18n::T(i18n::Str::kSumRisks), kChapterRequired | kChapterWarning);
       doc->AppendLine(i18n::T(i18n::Str::kScopePrivateWrite));
       doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
       doc->AppendLine(i18n::T(i18n::Str::kScopePay));
+      // 封装的对象就是那段密文：授权必须绑定密文，而不是只绑定 scope。
+      // 只绑定 scope 的话，一次"允许解封该 scope"会变成该 scope 的无限开锁许可。
+      uint8_t buf[128];
+      size_t n = 0;
       uint8_t sh[32];
-      digest::Sha256(reinterpret_cast<const uint8_t*>(exec->scope), strlen(exec->scope), sh);
-      memcpy(exec->match.objectHash, sh, 16);
+      if (opId == OpId::kSecretOpen) {
+        if (exec->sealed.ciphertextLen == 0) return PrepareStatus::kMalformed;
+        digest::Sha256(exec->sealed.ciphertext, exec->sealed.ciphertextLen, sh);
+      } else {
+        digest::Sha256(exec->plaintext, exec->plaintextLen, sh);
+      }
+      if (!KeyBufText(buf, sizeof(buf), &n, "rockey:localsecret:v1") ||
+          !KeyBufText(buf, sizeof(buf), &n, exec->scope) ||
+          !KeyBufBytes(buf, sizeof(buf), &n, sh, 32)) {
+        return PrepareStatus::kMalformed;
+      }
+      uint8_t h[32];
+      digest::Sha256(buf, n, h);
+      memcpy(exec->match.objectHash, h, 16);
       break;
     }
     case OpId::kContentAttest: {
@@ -840,28 +1063,18 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       doc->AddSummary(i18n::T(i18n::Str::kSumObject), line);
       doc->AddSummary(i18n::T(i18n::Str::kSumLimits), exec->purpose);
       doc->AddChapter(i18n::T(i18n::Str::kSumRisks), kChapterRequired | kChapterWarning);
-      doc->AppendLine(i18n::T(i18n::Str::kErrInvalidRequest));
+      doc->AddRisk(Risk::kContentDigestHostComputed);
+      doc->AppendLine(i18n::T(i18n::Str::kContentNotTx));
       doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
       doc->AppendLine(i18n::T(i18n::Str::kScopePay));
+      // 显示设备自己算出的声明摘要，而不是主机给的十六进制原文
+      uint8_t statement[32];
+      ContentDigest(exec->purpose, exec->digestHex, statement);
       char d[70];
-      doc->AddSummary(i18n::T(i18n::Str::kSumRisks), d);
+      digest::ToHex(statement, 32, d, sizeof(d));
+      doc->AddSummary(i18n::T(i18n::Str::kContentDigestLabel), d);
       size_t n = 0;
       digest::FromHex(exec->digestHex, strlen(exec->digestHex), exec->match.objectHash, 16, &n);
-      break;
-    }
-    case OpId::kEvidenceReceive: {
-      doc->AddChapter(i18n::T(i18n::Str::kSumObject), kChapterRequired);
-      digest::ToHex(exec->subjectPub, 33, line, sizeof(line));
-      doc->AddSummary(i18n::T(i18n::Str::kEvidSubject), line);
-      doc->AddChapter(i18n::T(i18n::Str::kEvidTitle), kChapterRequired | kChapterWarning);
-      doc->AddRisk(Risk::kNoEvidence);
-      doc->AppendLine(i18n::T(i18n::Str::kEvidNoEvidence));
-      doc->AppendLine(i18n::T(i18n::Str::kEvidNote));
-      doc->AppendLine(i18n::T(i18n::Str::kEvidTimeUnknown));
-      doc->AddRisk(Risk::kTimeUnverified);
-      doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
-      doc->AppendLine(i18n::T(i18n::Str::kScopeSignTx));
-      memcpy(exec->match.objectHash, exec->subjectPub, 16);
       break;
     }
     case OpId::kMigrationImport:
@@ -902,14 +1115,23 @@ ErrorCode Execute(ExecContext& e, uint8_t* out, size_t cap, size_t* outLen) {
   switch (e.op) {
     case OpId::kIdentityProve:
     case OpId::kIdentityAuthorize: {
-      if (!secp::SignDer(priv, e.challenge, sigDer, &sigLen)) return ErrorCode::kInvalidRequest;
-      w.BeginMap(3);
+      // 绝不能直接签主机给的 32 字节：那等于一个任意摘要签名接口 ——
+      // 浏览器可以把一笔交易的 sighash 当 challenge 塞进来，拿走一个
+      // 与 tx.p2pkh-sign 同等有效的交易签名，而屏幕上从没显示过这笔交易。
+      // 设备自己构造域隔离的证明摘要，把用途、身份、会话和 challenge
+      // 一起绑进去；交易/通道/内容摘要的域标签不同，跨域不可复用。
+      uint8_t stmt[32];
+      if (!IdentityProofDigest(e, stmt)) return ErrorCode::kInvalidRequest;
+      if (!secp::SignDer(priv, stmt, sigDer, &sigLen)) return ErrorCode::kInvalidRequest;
+      w.BeginMap(4);
+      w.Key("challenge");
+      w.Bytes(e.challenge, 32);
       w.Key("publicKey");
       w.Bytes(keystore::KeyStore::PublicKey(), 33);
       w.Key("signature");
       w.Bytes(sigDer, sigLen);
       w.Key("signatureFormat");
-      w.Text("der-strict-lows");
+      w.Text("der-strict-lows-domain-separated");
       break;
     }
     case OpId::kTxSign: {
@@ -917,10 +1139,10 @@ ErrorCode Execute(ExecContext& e, uint8_t* out, size_t cap, size_t* outLen) {
       if (!rv.ok) return ErrorCode::kInvalidRequest;
       if (!SignInput(e.tx, sigDer, &sigLen)) return ErrorCode::kInvalidRequest;
       w.BeginMap(4);
-      w.Key("publicKey");
-      w.Bytes(keystore::KeyStore::PublicKey(), 33);
       w.Key("sighash");
       w.Bytes(rv.sighash, 32);
+      w.Key("publicKey");
+      w.Bytes(keystore::KeyStore::PublicKey(), 33);
       w.Key("signature");
       w.Bytes(sigDer, sigLen);
       w.Key("sighashType");
@@ -971,12 +1193,12 @@ ErrorCode Execute(ExecContext& e, uint8_t* out, size_t cap, size_t* outLen) {
       }
       if (!secp::SignDer(priv, dg, sigDer, &sigLen)) return ErrorCode::kInvalidRequest;
       w.BeginMap(3);
-      w.Key("messageDigest");
-      w.Bytes(dg, 32);
       w.Key("publicKey");
       w.Bytes(keystore::KeyStore::PublicKey(), 33);
       w.Key("signature");
       w.Bytes(sigDer, sigLen);
+      w.Key("messageDigest");
+      w.Bytes(dg, 32);
       break;
     }
     case OpId::kChannelSeal: {
@@ -986,47 +1208,55 @@ ErrorCode Execute(ExecContext& e, uint8_t* out, size_t cap, size_t* outLen) {
       rand::Fill(nonce, 12);
       uint8_t aad[64];
       size_t aadLen = 0;
-      memcpy(aad, "rockey:channel:seal:v1", 22);
-      aadLen = 22;
-      size_t pl = strlen(e.protocolType);
-      memcpy(aad + aadLen, e.protocolType, pl);
-      aadLen += pl;
+      if (!KeyBufText(aad, sizeof(aad), &aadLen, "rockey:channel:seal:v1") ||
+          !KeyBufText(aad, sizeof(aad), &aadLen, e.protocolType)) {
+        secure::Wipe(key, sizeof(key));
+        return ErrorCode::kInvalidRequest;
+      }
       uint8_t ct[520];
       uint8_t tag[16];
       if (!aead::Seal(key, nonce, aad, aadLen, e.message, e.messageLen, ct, tag)) {
+        secure::Wipe(key, sizeof(key));
         return ErrorCode::kInvalidRequest;
       }
-      w.BeginMap(3);
-      w.Key("ciphertext");
-      w.Bytes(ct, e.messageLen);
+      // 密文与 tag 合并成一个字段：open 侧按同样约定读，
+      // 不再是"seal 单独回 tag、open 却把 tag 算进 ciphertextLen"的两套规则。
+      uint8_t sealed[sizeof(ct) + sizeof(tag)];
+      memcpy(sealed, ct, e.messageLen);
+      memcpy(sealed + e.messageLen, tag, sizeof(tag));
+      w.BeginMap(2);
       w.Key("nonce");
       w.Bytes(nonce, 12);
-      w.Key("tag");
-      w.Bytes(tag, 16);
+      w.Key("sealed");
+      w.Bytes(sealed, e.messageLen + sizeof(tag));
       secure::Wipe(key, sizeof(key));
       secure::Wipe(ct, sizeof(ct));
+      secure::Wipe(sealed, sizeof(sealed));
       break;
     }
     case OpId::kChannelOpen: {
+      // sealed = ciphertext || tag(16)，与 channel.seal 的输出同构
+      if (e.ciphertextLen < aead::kTagLen) return ErrorCode::kInvalidRequest;
       uint8_t key[32];
       if (!ChannelSealKey(e.senderPub, e.protocolType, key)) return ErrorCode::kInvalidRequest;
       uint8_t aad[64];
       size_t aadLen = 0;
-      memcpy(aad, "rockey:channel:seal:v1", 22);
-      aadLen = 22;
-      size_t pl = strlen(e.protocolType);
-      memcpy(aad + aadLen, e.protocolType, pl);
-      aadLen += pl;
-      if (e.ciphertextLen < 16) return ErrorCode::kInvalidRequest;
+      if (!KeyBufText(aad, sizeof(aad), &aadLen, "rockey:channel:seal:v1") ||
+          !KeyBufText(aad, sizeof(aad), &aadLen, e.protocolType)) {
+        secure::Wipe(key, sizeof(key));
+        return ErrorCode::kInvalidRequest;
+      }
+      size_t ctLen = e.ciphertextLen - aead::kTagLen;
       uint8_t plain[512];
-      if (!aead::Open(key, e.channelNonce, aad, aadLen, e.ciphertext,
-                            e.ciphertextLen - 16, e.ciphertext + e.ciphertextLen - 16, plain)) {
+      bool ok = aead::Open(key, e.channelNonce, aad, aadLen, e.ciphertext, ctLen,
+                           e.ciphertext + ctLen, plain);
+      if (!ok) {
         secure::Wipe(key, sizeof(key));
         return ErrorCode::kInvalidRequest;
       }
       w.BeginMap(1);
       w.Key("plaintext");
-      w.Bytes(plain, e.ciphertextLen - 16);
+      w.Bytes(plain, ctLen);
       secure::Wipe(plain, sizeof(plain));
       secure::Wipe(key, sizeof(key));
       break;
@@ -1041,16 +1271,16 @@ ErrorCode Execute(ExecContext& e, uint8_t* out, size_t cap, size_t* outLen) {
       digest::ToHex(sealed.nonce, kNonceLen, nonceHex, sizeof(nonceHex));
       digest::ToHex(sealed.ciphertext, sealed.ciphertextLen, ctHex, sizeof(ctHex));
       w.BeginMap(5);
-      w.Key("ciphertextHex");
-      w.Text(ctHex);
-      w.Key("keySource");
-      w.Text(kKeySource);
-      w.Key("nonceHex");
-      w.Text(nonceHex);
       w.Key("saltHex");
       w.Text(saltHex);
       w.Key("version");
       w.Uint(kEnvelopeVersion);
+      w.Key("nonceHex");
+      w.Text(nonceHex);
+      w.Key("keySource");
+      w.Text(kKeySource);
+      w.Key("ciphertextHex");
+      w.Text(ctHex);
       secure::Wipe(sealed.ciphertext, sizeof(sealed.ciphertext));
       break;
     }

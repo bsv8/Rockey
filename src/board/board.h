@@ -44,6 +44,9 @@ struct Board {
   // 仅供 UI 指示电量；不作为任何授权或时效依据（无可信时钟）
   static uint8_t BatteryPercent();
   static uint32_t FreeHeap();
+#if defined(ROCKEY_DEV_BUTTON_API)
+  static uint32_t DevSerialErrors();
+#endif
   static const char* BoardName();
 };
 

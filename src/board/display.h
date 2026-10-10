@@ -12,6 +12,17 @@ namespace rockey {
 
 struct Rect {
   int16_t x = 0, y = 0, w = 0, h = 0;
+
+  Rect() = default;
+  // 收 int 而不是只收 int16_t：调用点几乎都是 "x + 6"、"w - 12"、"lh * 2"
+  // 这类 int 算术，用花括号初始化聚合体时会被窄化规则直接判为编译错误。
+  // 在这里统一收窄，调用点就不用到处撒 static_cast。
+  Rect(int x_, int y_, int w_, int h_)
+      : x(static_cast<int16_t>(x_)),
+        y(static_cast<int16_t>(y_)),
+        w(static_cast<int16_t>(w_)),
+        h(static_cast<int16_t>(h_)) {}
+
   bool Contains(int16_t px, int16_t py) const {
     return px >= x && px < x + w && py >= y && py < y + h;
   }

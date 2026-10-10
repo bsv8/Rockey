@@ -29,7 +29,6 @@ void DrawBuiltin(uint8_t fontId, int16_t x, int16_t yTop, uint16_t cp, uint16_t 
                  const Rect& clip) {
   // TFT_eSPI 内置字库以左上为原点、行高 8/16
   int16_t h = (fontId == 4) ? 19 : (fontId == 2 ? 14 : 10);
-  int16_t w = (fontId == 4) ? 12 : (fontId == 2 ? 10 : 6);
   if (!clip.Contains(x, yTop) && !clip.Contains(x, yTop + h - 1)) return;
   tft.setTextColor(fg, bg);
   tft.setTextFont(fontId);

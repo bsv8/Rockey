@@ -208,6 +208,15 @@ bool Reader::ReadHead(uint8_t* major, uint64_t* val) {
   return true;
 }
 
+void Reader::TakeValue() {
+  // 每读走一个值，就从当前容器的剩余计数里扣一格：
+  //  - 数组：一格就是一个元素；
+  //  - map ：一格是一个"键或值"，MapKey 扣键、这里扣值，两格凑成一对。
+  // 嵌套时这两组计数只描述最内层容器（与 depth_ 同步进出）。
+  if (arrItemsLeft_ > 0) arrItemsLeft_--;
+  if (inMap_ && mapItemsLeft_ > 0) mapItemsLeft_--;
+}
+
 void Reader::Enter() {
   if (depth_ + 1 > kMaxDepth) ok_ = false;
   depth_++;
@@ -225,20 +234,23 @@ size_t Reader::MapBegin() {
     ok_ = false;
     return 0;
   }
-  if (v * 2 > remaining() + 2) {
+  // 每个键值对至少 2 字节；主机自报的对数超过剩余字节即拒绝，
+  // 不用它去预分配任何东西。
+  if (v > static_cast<uint64_t>(remaining())) {
     ok_ = false;
     return 0;
   }
+  TakeValue();
   Enter();
   inMap_ = true;
   hasLastKey_ = false;
   lastKeyLen_ = 0;
-  itemsLeft_ = static_cast<size_t>(v) * 2;
+  mapItemsLeft_ = static_cast<size_t>(v) * 2;
   return static_cast<size_t>(v);
 }
 
 const char* Reader::MapKey(size_t* n) {
-  if (!inMap_ || itemsLeft_ == 0) {
+  if (!inMap_ || mapItemsLeft_ == 0) {
     ok_ = false;
     return nullptr;
   }
@@ -255,7 +267,7 @@ const char* Reader::MapKey(size_t* n) {
   const char* p = reinterpret_cast<const char*>(buf_ + pos_);
   pos_ += v;
   TrackKey(p, static_cast<size_t>(v));
-  itemsLeft_--;
+  mapItemsLeft_--;
   *n = static_cast<size_t>(v);
   return p;
 }
@@ -263,7 +275,9 @@ const char* Reader::MapKey(size_t* n) {
 void Reader::EndMap() {
   if (inMap_) {
     inMap_ = false;
-    itemsLeft_ = 0;
+    // 必须正好读完声明的对数：多/少都视为格式错误
+    if (mapItemsLeft_ != 0) ok_ = false;
+    mapItemsLeft_ = 0;
     Leave();
   }
 }
@@ -304,18 +318,20 @@ size_t Reader::ArrayBegin() {
     ok_ = false;
     return 0;
   }
-  if (v > remaining() + 1) {
+  // 数组每个元素至少 1 字节
+  if (v > static_cast<uint64_t>(remaining())) {
     ok_ = false;
     return 0;
   }
+  TakeValue();
   Enter();
-  itemsLeft_ = static_cast<size_t>(v);
+  arrItemsLeft_ = static_cast<size_t>(v);
   return static_cast<size_t>(v);
 }
 
 void Reader::EndArray() {
-  if (itemsLeft_ != 0) ok_ = false;
-  itemsLeft_ = 0;
+  if (arrItemsLeft_ != 0) ok_ = false;
+  arrItemsLeft_ = 0;
   Leave();
 }
 
@@ -327,6 +343,7 @@ uint64_t Reader::Uint() {
     ok_ = false;
     return 0;
   }
+  TakeValue();
   return v;
 }
 
@@ -334,8 +351,14 @@ int64_t Reader::Int() {
   uint8_t major;
   uint64_t v;
   if (!ReadHead(&major, &v)) return 0;
-  if (major == kMajUint) return static_cast<int64_t>(v);
-  if (major == kMajNeg) return -1 - static_cast<int64_t>(v);
+  if (major == kMajUint) {
+    TakeValue();
+    return static_cast<int64_t>(v);
+  }
+  if (major == kMajNeg) {
+    TakeValue();
+    return -1 - static_cast<int64_t>(v);
+  }
   ok_ = false;
   return 0;
 }
@@ -352,6 +375,7 @@ const uint8_t* Reader::Bytes(size_t* n) {
     *n = 0;
     return nullptr;
   }
+  TakeValue();
   const uint8_t* p = buf_ + pos_;
   pos_ += v;
   *n = static_cast<size_t>(v);
@@ -370,6 +394,7 @@ const char* Reader::Text(size_t* n) {
     *n = 0;
     return nullptr;
   }
+  TakeValue();
   const char* p = reinterpret_cast<const char*>(buf_ + pos_);
   pos_ += v;
   *n = static_cast<size_t>(v);
@@ -384,6 +409,7 @@ bool Reader::Bool() {
     ok_ = false;
     return false;
   }
+  TakeValue();
   return v == 21;
 }
 
@@ -391,13 +417,24 @@ void Reader::Null() {
   uint8_t major;
   uint64_t v;
   if (!ReadHead(&major, &v)) return;
-  if (major != kMajSimple || v != 22) ok_ = false;
+  if (major != kMajSimple || v != 22) {
+    ok_ = false;
+    return;
+  }
+  TakeValue();
 }
 
+// 跳过任意一个数据项。必须受深度限制：主机可以送来任意深的嵌套，
+// 递归跳过而不设上限就是栈耗尽 DoS。
 void Reader::SkipItem() {
+  if (depth_ >= kMaxDepth) {
+    ok_ = false;
+    return;
+  }
   uint8_t major;
   uint64_t v;
   if (!ReadHead(&major, &v)) return;
+  TakeValue();
   switch (major) {
     case kMajUint:
     case kMajNeg:
@@ -411,13 +448,17 @@ void Reader::SkipItem() {
       pos_ += v;
       break;
     case kMajArray:
-      for (uint64_t i = 0; i < v; ++i) SkipItem();
+      Enter();
+      for (uint64_t i = 0; i < v && ok_; ++i) SkipItem();
+      Leave();
       break;
     case kMajMap:
-      for (uint64_t i = 0; i < v; ++i) {
+      Enter();
+      for (uint64_t i = 0; i < v && ok_; ++i) {
         SkipItem();
         SkipItem();
       }
+      Leave();
       break;
     case kMajSimple:
       if (v != 20 && v != 21 && v != 22) ok_ = false;

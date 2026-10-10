@@ -3,6 +3,8 @@
 #include <TFT_eSPI.h>
 #include <string.h>
 
+#include "ui/text.h"
+
 #if defined(ROCKEY_FONT_TABLE)
 #include "i18n/fonts/rockey_fonts.h"
 #endif
@@ -90,19 +92,27 @@ bool FontHasGlyph(FontRole role, uint32_t cp) {
   return cp >= 32 && cp <= 126;
 }
 
+// 逐码点查字库。
+//
+// 必须走 Utf8Next 真正解码 UTF-8：早先这里直接把**首字节**当码位
+// （cp = text[i]），于是任何多字节字符都被当成它对应的 Latin-1 字符查表 ——
+// 中日韩正文的首字节都是 0xE0 一类的值，只要字库恰好有 U+00E0 就整段报
+// "覆盖"，缺字检测形同虚设，阅读页脚的"缺字 U+xxxx"要么不出现、要么报错码位。
 bool FontCoversUtf8(FontRole role, const char* text, size_t len, uint32_t* firstMissing) {
   size_t i = 0;
   while (i < len && text[i]) {
-    uint32_t cp = static_cast<uint8_t>(text[i]);
-    size_t adv = 1;
-    if (cp >= 0xF0) adv = 4;
-    else if (cp >= 0xE0) adv = 3;
-    else if (cp >= 0xC0) adv = 2;
+    uint32_t cp = 0;
+    DecodeStatus st = DecodeStatus::kOk;
+    size_t adv = Utf8Next(text, len, i, &cp, &st);
+    if (st != DecodeStatus::kOk) {
+      if (firstMissing) *firstMissing = 0xFFFD;
+      return false;
+    }
     if (!FontHasGlyph(role, cp)) {
       if (firstMissing) *firstMissing = cp;
       return false;
     }
-    i += adv;
+    i += adv ? adv : 1;
   }
   return true;
 }
