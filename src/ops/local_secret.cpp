@@ -110,7 +110,7 @@ bool Open(const char* scope, size_t scopeLen, const SealedSecret& sealed, uint8_
 bool SelfTest() {
   // 公开向量：私钥 = 1，scope = "storage.bucket-password"，固定 salt/nonce/明文。
   // 与 keymaster.cc 的 active-key-hkdf-v1 逐字节一致（WebCrypto HKDF-SHA256 + AES-256-GCM）。
-  // 该向量由 scripts/check_test_vectors.py 对照权威实现复核。
+  // 该向量由 tools/test-vectors/main.py 对照权威实现复核。
   static const uint8_t kPriv1[32] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
                                      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01};

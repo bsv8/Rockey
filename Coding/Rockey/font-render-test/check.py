@@ -12,7 +12,7 @@ import tempfile
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[3]
-manifest = json.loads((ROOT / 'tools/fontsrc/manifest.json').read_text())
+manifest = json.loads((ROOT / 'tools/fonts/sources/manifest.json').read_text())
 profile = manifest['profiles']['fusion-pixel']
 role_names = ['title', 'body', 'small', 'mono_small', 'mono_large']
 display_source = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'src/board/display.cpp'

@@ -14,7 +14,7 @@
 # 的情况，只有拿成熟实现逐字节对照才抓得住。
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 CXX="${CXX:-c++}"
@@ -22,7 +22,7 @@ SAN="${SAN:--fsanitize=address,undefined}"
 BIN="$(mktemp -d)"
 trap 'rm -rf "$BIN"' EXIT
 
-"$ROOT/scripts/check_syntax.sh" || exit 1
+"$ROOT/tools/syntax/main.sh" || exit 1
 echo
 
 # ── 找 mbedTLS ───────────────────────────────────────────────────────

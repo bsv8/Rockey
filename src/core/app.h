@@ -12,6 +12,7 @@
 #include "ops/review.h"
 #include "proto/link.h"
 #include "ui/widgets.h"
+#include "../../Coding/Rockey/device-ui/channel_settings.hpp"
 
 namespace rockey {
 namespace vlp { class Controller; }
@@ -38,6 +39,7 @@ class App {
     kSummary,
     kDenyConfirm,
     kGrants,
+    kChannels,
     kBackup,
     kErase,
     kMigrate,
@@ -59,10 +61,12 @@ class App {
   std::vector<uint8_t> DevTestControl(const std::vector<uint8_t>& command);
   uint32_t testRestartAt_=0;
 #endif
+  ui::ChannelSettings channelSettings_;
   // 屏幕
   void Go(Screen s);
   void Draw();
   void DrawBoot();
+  bool emptyImportBusy_=false;
   void DrawLock();
   void DrawSetPin();
   void DrawWait();

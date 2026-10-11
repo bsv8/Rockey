@@ -69,9 +69,21 @@ class PaymentService {
   vaultlink::Value channel(const std::string &id) {
     return policy.channel_view(id);
   }
+  class Registered final:public vaultlink::Operation {
+    vaultlink::Policy& policy;vaultlink::Value channel;std::unique_ptr<vaultlink::Operation> inner;
+    void check(){auto now=policy.signing_channel(channel.at("id").string(),channel.at("operation").string());vaultlink::require(now.at("revision").integer()==channel.at("revision").integer(),"permission-revoked");}
+   public:
+    Registered(vaultlink::Policy& p,vaultlink::Value c,std::unique_ptr<vaultlink::Operation> op):policy(p),channel(std::move(c)),inner(std::move(op)){}
+    bool ready()override{check();return inner->ready();}bool allowed()override{check();return inner->allowed();}
+    vaultlink::Value execute()override{check();return inner->execute();}void cancel()override{inner->cancel();}
+  };
  public:
   PaymentService(vaultlink::IdentityKey &k, vaultlink::Store &store, ApprovalUI &u, std::string bsvNetwork)
       : key(k), network(std::move(bsvNetwork)), policy(store, vaultlink::to_hex(k.public_key()),vaultlink::sha256,network), ui(u) {vaultlink::require(network=="main"||network=="test","network-identity-required");}
+  vaultlink::Value signing_channels() const{return policy.signing_view();}
+  void configure_signing(const std::string& id,const std::string& mode,uint64_t revision){policy.configure_signing(id,mode,revision);}
+  vaultlink::Value payment_channels() const{return policy.channels_view();}
+  void configure_payment(const vaultlink::Channel& channel){policy.configure(channel,true);}
   size_t grant_count() const{return grants.count();}
   ScopeGrants::Entry grant(size_t i) const{return grants.get(i);}
   void cancel_grant(size_t i){grants.cancel(i);}
@@ -80,15 +92,36 @@ class PaymentService {
   // USB 断开撤销链路与易失 scope 决定；App 连接预算独立持久，不因串口重连重开。
   void disconnected() { grants.clear(); ui.clear(); }
   vaultlink::Prepared prepare(const std::string &op, const vaultlink::Value &body,
-                             const vaultlink::Bytes &hash) {
+                             const vaultlink::Bytes &hash, const vaultlink::Value* registered=nullptr) {
     using namespace vaultlink;
+    if(op=="signing.register"){
+      body.fields({"network","channels"});require(body.at("network").string()==network,"network-identity-mismatch");require(commitment("signing-register",body)==hash,"invalid-commitment");
+      auto rows=body.at("channels");require(rows.kind==Value::Array&&!rows.array.empty()&&rows.array.size()<=32,"invalid-signing-channel");
+      Review r{op,"","",{{"network",network}}};bool fresh=false;
+      for(const auto& c:rows.array){inspect_signing_channel(c);bool exists=false;for(const auto& old:policy.signing_view().array)if(old.at("id").string()==c.at("id").string()){require(same_signing_registration(old,c),"channel-conflict");exists=true;}
+        if(!exists){fresh=true;r.facts.push_back({"channelId",c.at("id").string()});r.facts.push_back({"owner",c.at("owner").string()});r.facts.push_back({"mode",c.at("mode").string()});}}
+      if(!fresh)r.operation.clear();
+      return {"signing-register",body,std::make_unique<Action>(ui,r,fresh,[this,rows](const Approval&){policy.register_signing(rows,true);return obj({{"channels",policy.signing_view()}});})};
+    }
+    if(op=="signing.list"){
+      body.fields({});require(commitment("signing-list",body)==hash,"invalid-commitment");return {"signing-list",body,std::make_unique<Action>(ui,Review{},false,[this](const Approval&){return obj({{"channels",policy.signing_view()}});})};
+    }
+    if(op=="signing.execute"){
+      body.fields({"channelId","operation","body","commitment"});require(commitment("signing-request",body)==hash,"invalid-commitment");
+      auto op=body.at("operation").string();require(signing_operation(op)&&op!="software.digest-sign","unsupported");
+      auto c=policy.signing_channel(body.at("channelId").string(),op);
+      auto inner=prepare(op,body.at("body"),body.at("commitment").binary(32),&c);
+      return {"signing-request",body,std::make_unique<Registered>(policy,c,std::move(inner.operation))};
+    }
+    if(signing_operation(op))require(registered!=nullptr,"channel-required");
+    const bool manual=registered&&registered->at("mode").string()=="manual";
     if(op=="identity.network"){body.fields({});require(commitment("identity-network",body)==hash,"invalid-commitment");return {"identity-network",body,std::make_unique<IdentityQuery>(*this)};}
     if(op=="bitfs.wire-sign") {
       require(commitment("bitfs-wire-document",body)==hash,"invalid-commitment");auto checked=inspect_bitfs_wire(body,key.public_key());
       require(checked.kind!=5,"payment-context-required");
       Review r{op,"","",{{"operation",op},{"wireKind",std::to_string(checked.kind)},{"objectHash",to_hex(checked.digest)}}};
       r.facts.insert(r.facts.end(),checked.facts.begin(),checked.facts.end());
-      return {"bitfs-wire-document",body,std::make_unique<Action>(ui,r,true,[this,body](const Approval &){
+      return {"bitfs-wire-document",body,std::make_unique<Action>(ui,r,manual,[this,body](const Approval &){
         auto current=inspect_bitfs_wire(body,key.public_key());return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
       })};
     }
@@ -111,10 +144,10 @@ class PaymentService {
         {"issuedAt",std::to_string(checked.issued)},{"expiresAt",std::to_string(checked.expires)},{"objectHash",to_hex(checked.digest)}}};
       if(!checked.peer.empty())r.facts.push_back({"peer",checked.peer});
       if(!checked.protocol.empty())r.facts.push_back({"protocol",checked.protocol});
-      r.can_remember=true;auto expected=std::make_shared<uint64_t>(grants.revision());auto decision=grants.decision(grant_op,scope);
-      auto record=[this,expected,grant_op,scope](const Approval &answer){
+      r.can_remember=!registered;auto expected=std::make_shared<uint64_t>(grants.revision());auto decision=registered?(manual?ScopeGrants::Ask:ScopeGrants::Allow):grants.decision(grant_op,scope);
+      auto record=[this,expected,grant_op,scope,registered=bool(registered)](const Approval &answer){
         require(grants.revision()==*expected,"permission-revoked");
-        if(answer.state==Approval::AllowSession||answer.state==Approval::DenySession){grants.set(grant_op,scope,answer.state==Approval::AllowSession?ScopeGrants::Allow:ScopeGrants::Deny);*expected=grants.revision();}
+        if(!registered&&(answer.state==Approval::AllowSession||answer.state==Approval::DenySession)){grants.set(grant_op,scope,answer.state==Approval::AllowSession?ScopeGrants::Allow:ScopeGrants::Deny);*expected=grants.revision();}
       };
       return {profile,body,std::make_unique<Action>(ui,r,decision==ScopeGrants::Ask,[this,body,kind,expected](const Approval &){
         require(grants.revision()==*expected,"permission-revoked");const auto &message=body.at("message").binary();
@@ -128,19 +161,9 @@ class PaymentService {
       auto checked=inspect_network_identity(kind,body,key.public_key());require(commitment(profile,body)==hash,"invalid-commitment");
       Review r{op,"","",{{"operation",op},{"protocol",kind},{"objectHash",to_hex(checked.digest)}}};
       if(kind=="peer-record")r.facts.push_back({"sequence",checked.sequence});
-      // Noise proves ownership of a fixed, device-reconstructed handshake payload.
-      // Default to automatic approval; explicit denial/revocation still applies.
-      // Peer records remain an independent, manually reviewed permission.
-      const bool noise=kind=="noise";
-      r.can_remember=!noise;const std::string scope="libp2p-identity";auto expected=std::make_shared<uint64_t>(grants.revision());auto decision=grants.decision(op,scope);
-      auto record=[this,expected,op,scope](const Approval &answer){
-        require(grants.revision()==*expected,"permission-revoked");
-        if(answer.state==Approval::AllowSession||answer.state==Approval::DenySession){grants.set(op,scope,answer.state==Approval::AllowSession?ScopeGrants::Allow:ScopeGrants::Deny);*expected=grants.revision();}
-      };
-      return {profile,body,std::make_unique<Action>(ui,r,!noise&&decision==ScopeGrants::Ask,[this,body,kind,expected](const Approval &){
-        require(grants.revision()==*expected,"permission-revoked");auto current=inspect_network_identity(kind,body,key.public_key());
-        return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
-      },record,decision==ScopeGrants::Deny)};
+      return {profile,body,std::make_unique<Action>(ui,r,manual,[this,body,kind](const Approval &){
+        auto current=inspect_network_identity(kind,body,key.public_key());return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
+      })};
     }
     if(op=="connect.identity-sign"||op=="connect.intent-sign") {
       const bool identity=op=="connect.identity-sign";
@@ -153,7 +176,7 @@ class PaymentService {
       if(identity)for(const auto &name:checked.claims)r.facts.push_back({"claim",name});
       else {r.facts.push_back({"contentType",checked.content_type});r.facts.push_back({"contentLength",std::to_string(checked.content_length)});r.facts.push_back({"contentHash",to_hex(checked.content_digest)});}
       // One physical decision per envelope; no persistent or session-wide identity approval.
-      return {profile,body,std::make_unique<Action>(ui,r,true,[this,body,identity](const Approval &){
+      return {profile,body,std::make_unique<Action>(ui,r,manual,[this,body,identity](const Approval &){
         auto current=inspect_connect(identity?"identity":"intent",body,key.public_key(),network);
         return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
       })};
@@ -191,6 +214,11 @@ class PaymentService {
                 body.at("defaultSessionLimit").integer(), body.at("revision").integer(),
                 body.at("enabled").flag(), body.at("kind").string(), payment_type};
       require(c.kind == "app" || c.kind == "plugin", "invalid-owner");
+      for(const auto& old:policy.channels_view().array)if(old.at("id").string()==c.id){
+        require(old.at("owner").string()==c.owner&&old.at("kind").string()==c.kind&&old.at("paymentType").string()==c.payment_type,"channel-conflict");
+        return {"payment-config",body,std::make_unique<Action>(ui,Review{},false,[old](const Approval&){return obj({{"configured",true},{"revision",old.at("revision")}});})};
+      }
+      require(c.revision==1,"hardware-settings-local");
       Review r{op, c.id, c.owner, {{"singleLimit", std::to_string(c.single)}, {"defaultSessionLimit", std::to_string(c.total)},
                                  {"enabled", c.enabled ? "true" : "false"}, {"kind", c.kind}}};
       return {"payment-config", body, std::make_unique<Action>(ui, r, true, [this, c](const Approval &) {

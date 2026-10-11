@@ -8,11 +8,11 @@
 #
 # 覆盖不到的：依赖 ESP-IDF 头文件的 crypto 实现
 # （digest / secp256k1 / x25519 / aead / rand）。这些由固件自带的
-# SelfTest() 与 scripts/check_test_vectors.py 覆盖，不在本脚本范围内 ——
+# SelfTest() 与 tools/test-vectors/main.py 覆盖，不在本脚本范围内 ——
 # 明确列出未覆盖项，不假装全绿。
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 STUBS="$ROOT/tests/host/stubs"
 CXX="${CXX:-c++}"
 STD="-std=gnu++17"

@@ -13,7 +13,7 @@
    `Writer` 自己会拒绝乱序（ok() 变 false），但调用方在设备上只表现为
    "静默不回包"，主机侧则表现为死等。
 
-用法：python3 scripts/check_wire_encoding.py [paths...]
+用法：python3 tools/wire-encoding/main.py [paths...]
 退出码 0 表示通过。
 """
 
@@ -21,7 +21,7 @@ import pathlib
 import re
 import sys
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # 参与检查的源文件：凡是接触 wire 字段名或 CBOR Writer 的都要查。
 TARGET_GLOBS = ["src/**/*.cpp", "src/**/*.h"]

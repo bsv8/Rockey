@@ -1,11 +1,11 @@
 {
   "schema": "rockey/fontsrc-manifest/1",
-  "cache": "tools/fontsrc/cache",
-  "license_dir": "tools/fontsrc/licenses",
+  "cache": "tools/fonts/sources/cache",
+  "license_dir": "tools/fonts/sources/licenses",
   "notes": [
-    "字体二进制不随仓库提交，由 tools/fetch_fonts.py 按固定 URL + sha256 拉取到 cache/。",
-    "OFL-1.1 许可证全文随仓库保存在 tools/fontsrc/licenses/。",
-    "profile 只声明角色到 (字体, 像素) 的映射；实际字形由 tools/genfont.py 决定。",
+    "字体源固定版本随仓库预置于 tools/fonts/sources/cache/；来源 URL、SHA256 和许可证见本清单。",
+    "OFL-1.1 许可证全文随仓库保存在 tools/fonts/sources/licenses/。",
+    "profile 只声明角色到 (字体, 像素) 的映射；实际字形由 tools/fonts/main.py 决定。",
     "full 档位把所选字体全部码位纳入，受 full_budget_glyphs 与分区预算约束。"
   ],
   "releases": {

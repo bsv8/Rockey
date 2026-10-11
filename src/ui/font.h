@@ -1,7 +1,7 @@
 // 位图字库访问层。
 //
 // Rockey 自己的光栅化器 + 统一字库格式，因此能报告缺字、精确控制背景擦除与
-// 裁剪，不依赖 TFT_eSPI 字库内部约定。字库生成器 tools/genfont.py 从固定版本
+// 裁剪，不依赖 TFT_eSPI 字库内部约定。字库生成器 tools/fonts/main.py 从固定版本
 // 的字体确定性产出 TableFont（见 src/i18n/fonts/MANIFEST.md）。
 //
 // 两种后端：

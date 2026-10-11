@@ -1,6 +1,6 @@
 // 主机侧的 ESP-IDF 替身：AES-ECB 单块与随机数。
 // 单独成文件，既能配合 tests/host/host_shims.cpp 使用，也能被
-// scripts/check_test_vectors.py 的自检驱动单独链接（那个驱动不需要
+// tools/test-vectors/main.py 的自检驱动单独链接（那个驱动不需要
 // keystore / secp 的替身）。
 #include <stdint.h>
 #include <stddef.h>

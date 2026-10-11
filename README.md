@@ -1,5 +1,7 @@
 # Rockey
 
+统一维护：`./rockey list`、`./rockey flash xxx.bin`、`./rockey clear-data`。工具集中在 [`tools/`](tools/README.md)，发布固件按时间归档到 [`releases/`](releases/README.md)。刷机只写固件区，清空只写钱包区，两者操作前均自动备份。
+
 Rockey 是面向 Keymaster 的 ESP32 / M5Stack 实验硬件 Vault：设备独立解锁、解析请求并通过三实体按钮授权，浏览器负责联网和数据搬运。
 
 当前状态：**已有可编译的固件实现，但全部未经真机验证**，也没有任何 RK-01…RK-09 的验收证据。硬件型号与部分参数尚未冻结。按施工单口径，R2/R3/R4 仍不通过、R5-R8 未完成，逐条结论见 [施工单](./docs/施工单.md) 第 12 节，接口细节见 [冻结/](./docs/冻结/)。
@@ -26,20 +28,20 @@ Rockey 是面向 Keymaster 的 ESP32 / M5Stack 实验硬件 Vault：设备独立
 不需要 ESP32 工具链，在任何装了 C++17 编译器的机器上都能跑：
 
 ```sh
-scripts/build.sh --check-only
+tools/build/main.sh --check-only
 ```
 
 依次执行：
 
 | 检查 | 内容 |
 | --- | --- |
-| `scripts/check_syntax.sh` | 对 `src/` 做 `-fsyntax-only`；本机有 mbedTLS 时覆盖 27/28 个实现文件。 |
+| `tools/syntax/main.sh` | 对 `src/` 做 `-fsyntax-only`；本机有 mbedTLS 时覆盖 27/28 个实现文件。 |
 | `tests/host/` | 编译 `src/` 里的**真实实现**跑 1489 条断言：CBOR/帧、AES-GCM 对照 mbedTLS、HKDF 对照 RFC 5869 与 mbedTLS、X25519 对照 RFC 7748、交易序列化与 sighash 预映像、地址向量、授权撤销与限额、本地秘密往返、64 位金额格式化、密钥封装/换 PIN/失败等待/恢复备份、已撤销与未冻结入口的拒绝行为。 |
-| `scripts/check_wire_encoding.py` | 字段名长度守卫、CBOR 键序、`BeginMap` 计数。 |
-| `scripts/check_i18n.py` | 文案完整性。 |
-| `scripts/check_test_vectors.py` | X25519 / AES-GCM / RIPEMD-160 / 本地秘密 v3。RIPEMD 与 AES-GCM 两节会**编译并执行**固件代码后比对；其余目前只比对常量，覆盖不足处已在输出中注明。 |
+| `tools/wire-encoding/main.py` | 字段名长度守卫、CBOR 键序、`BeginMap` 计数。 |
+| `tools/i18n/main.py` | 文案完整性。 |
+| `tools/test-vectors/main.py` | X25519 / AES-GCM / RIPEMD-160 / 本地秘密 v3。RIPEMD 与 AES-GCM 两节会**编译并执行**固件代码后比对；其余目前只比对常量，覆盖不足处已在输出中注明。 |
 
-构建固件另需 PlatformIO：`scripts/build.sh [环境...] [--all] [--upload <环境>]`。
+构建固件另需 PlatformIO：`tools/build/main.sh [环境...] [--all] [--upload <环境>]`。
 
 ## 2026-10-10：三按钮改 PIN 与主菜单滚动
 

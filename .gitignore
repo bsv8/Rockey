@@ -71,3 +71,6 @@ Testing/
 /.pio/
 __pycache__/
 *.pyc
+/releases/*/
+!/tools/build/
+!/tools/build/**

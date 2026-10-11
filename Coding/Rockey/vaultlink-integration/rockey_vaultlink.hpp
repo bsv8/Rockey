@@ -83,15 +83,20 @@ class Runtime final {
       }, std::move(physicalPairing));
     endpoint_->set_pairing_poll(std::move(pairingPoll));
     // 本产品实现渠道额度支付；不宣称旧任意摘要或尚未实现的费用池能力。
-    endpoint_->set_capabilities({vaultlink::Value(uint64_t(0x230)),vaultlink::Value(uint64_t(0x233))});
+    endpoint_->set_capabilities({vaultlink::Value(uint64_t(0x230)),vaultlink::Value(uint64_t(0x234))});
   }
   ~Runtime() { lock(); }
   Runtime(const Runtime&) = delete;
   Runtime& operator=(const Runtime&) = delete;
+  vaultlink::Value signing_channels() const{vaultlink::require(bool(payments_),"locked");return payments_->signing_channels();}
+  vaultlink::Value payment_channels() const{vaultlink::require(bool(payments_),"locked");return payments_->payment_channels();}
+  void configure_signing(const std::string& id,const std::string& mode,uint64_t revision){vaultlink::require(bool(payments_),"locked");payments_->configure_signing(id,mode,revision);}
+  void configure_payment(const vaultlink::Channel& c){vaultlink::require(bool(payments_),"locked");payments_->configure_payment(c);}
   size_t grant_count() const{return payments_?payments_->grant_count():0;}
   ScopeGrants::Entry grant(size_t i) const{vaultlink::require(bool(payments_),"locked");return payments_->grant(i);}
   void cancel_grant(size_t i){vaultlink::require(bool(payments_),"locked");payments_->cancel_grant(i);}
   void cancel_grants(){if(payments_)payments_->cancel_grants();}
+  bool connected()const{return endpoint_ && endpoint_->connected();}
   void poll() {
     vaultlink::require(bool(endpoint_), "disconnected");
     if (!keystore::KeyStore::IsUnlocked()) { lock(); return; }

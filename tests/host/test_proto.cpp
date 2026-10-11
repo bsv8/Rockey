@@ -5,7 +5,7 @@
 // 截断、缺字/超限，以及确定性 CBOR 键序契约。
 //
 // 主机上运行：
-//   scripts/run_host_tests.sh
+//   tools/host-tests/main.sh
 // 或：
 //   c++ -std=gnu++17 -Isrc -o /tmp/rk_proto tests/host/test_proto.cpp \
 //       src/proto/cbor.cpp src/proto/frame.cpp src/store/crc32.cpp && /tmp/rk_proto

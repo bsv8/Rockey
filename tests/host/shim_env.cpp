@@ -32,7 +32,7 @@ extern "C" {
 
 // ── 确定性时钟 ──────────────────────────────────────────────────────
 // 随机数由 tests/host/shim_esp_aes.cpp 提供（esp_random / esp_fill_random），
-// 该文件还被 scripts/check_test_vectors.py 的自检驱动单独链接，故不在此重复定义。
+// 该文件还被 tools/test-vectors/main.py 的自检驱动单独链接，故不在此重复定义。
 static unsigned long g_millis = 1000;
 unsigned long millis() { return g_millis; }
 unsigned long micros() { return g_millis * 1000; }

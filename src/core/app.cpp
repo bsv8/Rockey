@@ -32,7 +32,8 @@ constexpr uint32_t kEraseHoldMs = 3000;
 
 namespace {
 
-const char* LangHint() { return i18n::LangTag(); }
+bool browserConnected=false;
+const char* LangHint() { return i18n::T(browserConnected?i18n::Str::kBrowserConnected:i18n::Str::kBrowserDisconnected); }
 
 inline bool ev_backupScroll(const Buttons& b, uint32_t now) {
   if (b.IsDown(Btn::kC)) return true;
@@ -106,12 +107,12 @@ void App::Begin() {
     // An erased/staged migrating device is not a new wallet. Preserve its
     // public recovery evidence until the private migration controller resumes.
     try{vlp::MigrationStore disk;vaultlink::MigrationJournal journal(disk);auto record=journal.status();
-      if(!keystore::KeyStore::HasKey()&&record.at("direction").string()=="to-hardware"&&record.at("phase").string()=="staged"){Go(Screen::kSetPin);return;}
+      if(!keystore::KeyStore::HasKey()&&record.at("direction").string()=="to-hardware"&&record.at("phase").string()=="staged"){Go(Screen::kInitializeChoice);return;}
     }catch(...){/* Corrupt or legacy metadata does not permit PIN setup. */}
     ShowErrorScreen(ops::ErrorCode::kMigrationConflict);return;
   }
   if (!info.initialized) {
-    Go(Screen::kSetPin);
+    vaultlink_->prepare_empty();Go(Screen::kInitializeChoice);
   } else {
     uint32_t wait = keystore::KeyStore::WaitMsRemaining(now);
     if (wait > 0) {
@@ -157,7 +158,7 @@ std::vector<uint8_t> App::DevTestControl(const std::vector<uint8_t>& c) {
   if(info.initialized)for(auto b:info.pubkey){pub+=hex[b>>4];pub+=hex[b&15];}
   return vaultlink::encode(Value::object({{"firmware",Value("rockey-product-e2e-v1")},
     {"buildId",Value(ROCKEY_FIRMWARE_BUILD_ID)}, {"isolated",Value(true)},
-    {"pinCursor",Value(uint64_t(pinDigit_))},{"pinEntered",Value(uint64_t(pinLen_))},{"screen",Value(uint64_t(screen_))},{"unlocked",Value(keystore::KeyStore::IsUnlocked())},
+    {"menuSelected",Value(uint64_t(menuSelected_))},{"pinCursor",Value(uint64_t(pinDigit_))},{"pinEntered",Value(uint64_t(pinLen_))},{"screen",Value(uint64_t(screen_))},{"unlocked",Value(keystore::KeyStore::IsUnlocked())},
     {"initialized",Value(info.initialized)},{"publicKey",Value(pub)},
     {"failCount",Value(uint64_t(keystore::KeyStore::FailCount()))},
     {"waitMs",Value(uint64_t(keystore::KeyStore::WaitMsRemaining(millis())))},
@@ -183,7 +184,16 @@ void App::Loop() {
 
   bool wasUnlocked = keystore::KeyStore::IsUnlocked();
   const bool wasReviewing = vaultlink_->active_ui();
-  if (!selftestFailed_) vaultlink_->poll();
+  if (!selftestFailed_) {
+    if(screen_==Screen::kInitializeChoice&&!keystore::KeyStore::HasKey())vaultlink_->prepare_empty();
+    vaultlink_->poll();
+  }
+  const bool connected=vaultlink_->connected();
+  if(browserConnected!=connected){browserConnected=connected;ui::SetBrowserConnected(connected);needsRedraw_=true;pinRowDrawn_=false;}
+  if(screen_==Screen::kInitializeChoice&&keystore::KeyStore::IsUnlocked())Go(Screen::kMenu);
+  if(screen_==Screen::kInitializeChoice&&emptyImportBusy_!=vaultlink_->import_busy()){
+    emptyImportBusy_=vaultlink_->import_busy();needsRedraw_=true;
+  }
   if (wasReviewing && !vaultlink_->active_ui()) { needsRedraw_ = true; pinRowDrawn_ = false; }
   if (wasUnlocked && !keystore::KeyStore::IsUnlocked()) LockNow("VLP disconnected");
 
@@ -245,7 +255,7 @@ void App::Loop() {
         policy::Policy::ClearAll();
         link_.ClearSessions();
         ClearQueues();
-        Go(Screen::kSetPin);
+        Go(Screen::kInitializeChoice);
       }
       needsRedraw_ = true;
     }
@@ -337,27 +347,30 @@ void App::Loop() {
 void App::OnButton(Btn btn, BtnEvent ev) {
   switch (screen_) {
     case Screen::kNetworkChoice:
+      // 两个物理按钮直接选择并保存；中间按钮无操作。
       if(ev!=BtnEvent::kShortPress)return;
-      if(btn==Btn::kC){ResetPinEntry();Go(Screen::kSetPin);return;}
-      newKeyNetwork_ = btn==Btn::kB ? keystore::BsvNetwork::Test : keystore::BsvNetwork::Main;
-      Go(Screen::kInitializeChoice);return;
-    case Screen::kInitializeChoice:
-      if(ev!=BtnEvent::kShortPress)return;
-      if(btn==Btn::kC){secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;ResetPinEntry();Go(Screen::kSetPin);return;}
-      if(btn==Btn::kB){
-        try{vaultlink_->arm_import(newPin_,newPinLen_,newKeyNetwork_);secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;Go(Screen::kImport);}
-        catch(...){secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;ShowErrorScreen(ops::ErrorCode::kMigrationConflict);}return;
-      }
-      if(btn==Btn::kA){
-        if(store::Exists("/vault/vlp-migration.bin"))return;
-        // Existing migration markers block fresh identities in KeyStore. Never
-        // retry a different key after a successful write or failed verification.
+      if(btn!=Btn::kA&&btn!=Btn::kC)return;
+      newKeyNetwork_=btn==Btn::kA?keystore::BsvNetwork::Main:keystore::BsvNetwork::Test;
+      {
+        Display::FillScreen(color::kBlack);
+        const char* message=i18n::T(i18n::Str::kSavingWallet);
+        Display::DrawTextIn({0,0,Board::kScreenW,Board::kScreenH},FontRole::kSmall,
+                            message,strlen(message),color::kWhite,color::kBlack,
+                            TextAlign::kCenter,VAlign::kMiddle);
+        if(!store::Remove("/vault/vlp-migration.bin")||!store::Remove("/vault/vlp-import-meta.bin")||!store::Remove("/vault/vlp-import-stage.bin")){ShowErrorScreen(ops::ErrorCode::kMigrationConflict);return;}
         secure::SecretBytes<32> secret;bool valid=false;
         for(int i=0;i<8&&!valid;++i){rand::Fill(secret.data(),32);valid=secp::ValidatePriv(secret.data());}
         auto st=valid?keystore::KeyStore::SetPinAndWrap(newPin_,newPinLen_,secret.data(),newKeyNetwork_):keystore::Status::kInvalidArg;
         if(st==keystore::Status::kOk)st=keystore::KeyStore::Unlock(newPin_,newPinLen_);
         secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;
         if(st==keystore::Status::kOk)Go(Screen::kMenu);else ShowErrorScreen(ops::ErrorCode::kMigrationConflict);
+      }return;
+    case Screen::kInitializeChoice:
+      if(ev!=BtnEvent::kShortPress)return;
+      if(btn==Btn::kA&&!vaultlink_->import_busy()){
+        vaultlink_->lock();ResetPinEntry();Go(Screen::kSetPin);
+      }else if(btn==Btn::kC&&vaultlink_->import_busy()&&!keystore::KeyStore::HasKey()){
+        vaultlink_->lock();vaultlink_->prepare_empty();needsRedraw_=true;
       }return;
     case Screen::kImport:
       if(btn==Btn::kA&&ev==BtnEvent::kLongPress){vaultlink_->lock();LockNow("cancel import");}return;
@@ -368,7 +381,7 @@ void App::OnButton(Btn btn, BtnEvent ev) {
           try{vlp::MigrationStore disk;vaultlink::MigrationJournal journal(disk);
             const auto phase=journal.status().at("phase").string();
             if(phase=="complete"||phase=="erased")Go(Screen::kErase);
-            else if(journal.status().at("direction").string()=="to-hardware"&&phase=="staged"){vaultlink_->lock();ResetPinEntry();Go(Screen::kSetPin);}
+            else if(journal.status().at("direction").string()=="to-hardware"&&phase=="staged"){vaultlink_->lock();ResetPinEntry();Go(Screen::kInitializeChoice);}
           }catch(...){/* Keep recovery evidence and remain blocked. */}
         }else if(keystore::KeyStore::HasKey()){
           const auto wait=keystore::KeyStore::WaitMsRemaining(millis());
@@ -398,6 +411,9 @@ void App::OnButton(Btn btn, BtnEvent ev) {
     case Screen::kMigrate:
     case Screen::kBackup:
       HandleMenuInput(btn, ev);
+      break;
+    case Screen::kChannels:
+      if(channelSettings_.input(btn,ev))Go(Screen::kMenu);else needsRedraw_=true;
       break;
     case Screen::kGrants:
       HandleGrantsInput(btn, ev);
@@ -591,7 +607,7 @@ void App::SubmitPin() {
       break;
     }
     case keystore::Status::kNotInitialized:
-      Go(Screen::kSetPin);
+      Go(Screen::kInitializeChoice);
       break;
     default:
       ResetPinEntry();
@@ -611,6 +627,7 @@ void App::HandleSetPinInput(Btn btn, BtnEvent ev) {
         if (changingPin_) { LockNow("cancel PIN change"); return; }
         ResetPinEntry();
         secure::Wipe(newPin_, sizeof(newPin_)); newPinLen_ = 0;
+        Go(Screen::kInitializeChoice);
       } else {
         DeleteDigit();
       }
@@ -651,7 +668,7 @@ void App::HandleSetPinInput(Btn btn, BtnEvent ev) {
                 break;
               }
               // The repeated PIN stays only in RAM until the local choice.
-              ResetPinEntry();Go(Screen::kNetworkChoice);break;
+              ResetPinEntry();newKeyNetwork_=keystore::BsvNetwork::Main;Go(Screen::kNetworkChoice);break;
             }
             // 不一致：重新开始
             secure::Wipe(newPin_, sizeof(newPin_));
@@ -780,6 +797,12 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
         case 5: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
         case 6: Go(Screen::kErase); return;
         case 7: LockNow("change PIN"); changingPin_ = true; return;
+        case 10:
+          channelSettings_.signing=[this]{return vaultlink_->signing_channels();};
+          channelSettings_.payments=[this]{return vaultlink_->payment_channels();};
+          channelSettings_.saveSigning=[this](const std::string& id,const std::string& mode,uint64_t rev){vaultlink_->configure_signing(id,mode,rev);};
+          channelSettings_.savePayment=[this](const vaultlink::Channel& c){vaultlink_->configure_payment(c);};
+          channelSettings_.reset();Go(Screen::kChannels);return;
         case 8:
         case 9: {
           const bool manual=menuSelected_==9;
@@ -1208,18 +1231,20 @@ void App::Draw() {
     case Screen::kSetPin:
     case Screen::kSetPinConfirm: DrawSetPin(); break;
     case Screen::kNetworkChoice:
-      ui::DrawHeader("BSV Network",nullptr);
-      ui::DrawNotice("Network is fixed for this key",color::kWhite);
-      ui::DrawFooter("Mainnet","Testnet",i18n::T(i18n::Str::kCancel));break;
+      ui::DrawHeader(i18n::T(i18n::Str::kNetworkTitle),nullptr);
+      ui::DrawNotice(i18n::T(i18n::Str::kNetworkChoose),color::kWhite);
+      ui::DrawFooter("Main",nullptr,"Test");break;
     case Screen::kInitializeChoice:
-      ui::DrawHeader(i18n::T(i18n::Str::kInitializeChoice),nullptr);
-      ui::DrawFooter(store::Exists("/vault/vlp-migration.bin")?nullptr:i18n::T(i18n::Str::kInitializeNew),i18n::T(i18n::Str::kImportTitle),i18n::T(i18n::Str::kCancel));break;
+      ui::DrawHeader("RocKey",LangHint());
+      ui::DrawNotice(i18n::T(i18n::Str::kEmptyWallet),color::kWhite);
+      ui::DrawFooter(vaultlink_->import_busy()?nullptr:i18n::T(i18n::Str::kInitializeNew),nullptr,vaultlink_->import_busy()?i18n::T(i18n::Str::kCancel):nullptr);break;
     case Screen::kImport:
       ui::DrawHeader(i18n::T(i18n::Str::kImportTitle),nullptr);
       ui::DrawNotice(i18n::T(i18n::Str::kImportWaiting),color::kWhite);
       ui::DrawFooter(i18n::T(i18n::Str::kCancel),nullptr,nullptr);break;
     case Screen::kWaitPin: DrawWait(); break;
     case Screen::kPairing: DrawPairing(); break;
+    case Screen::kChannels: channelSettings_.draw(); break;
     case Screen::kMenu: DrawMenu(); break;
     case Screen::kInfo: DrawInfo(); break;
     case Screen::kPubkey: DrawPubkey(); break;
@@ -1345,6 +1370,7 @@ void App::DrawMenu() {
   menu_.Add(i18n::T(i18n::Str::kMenuChangePin));
   menu_.Add(i18n::T(sound::Enabled(false)?i18n::Str::kSoundAutoOff:i18n::Str::kSoundAutoOn));
   menu_.Add(i18n::T(sound::Enabled(true)?i18n::Str::kSoundManualOff:i18n::Str::kSoundManualOn));
+  menu_.Add(i18n::T(i18n::Str::kChannelSettings));
   if (menuSelected_ >= menu_.count) menuSelected_ = 0;
   menu_.selected = menuSelected_;
   ui::DrawMenu(menu_, false);

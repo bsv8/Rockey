@@ -1,7 +1,7 @@
 // 唯一文案表。
 //
 // 格式：X(枚举, en, zh-Hans, zh-Hant, zh-Hk, ja)
-//  - 五个语言列必须同时存在，scripts/check_i18n.py 与 tools/genfont.py 会在
+//  - 五个语言列必须同时存在，tools/i18n/main.py 与 tools/fonts/main.py 会在
 //    构建期检查缺翻译与缺字，缺一即构建失败。
 //  - 固定 UI 文案与风险模板都在这里；外部文本永远不会进入本表，
 //    因此外部文本无法伪造标题、按钮或可信徽标（需求 §6.3）。
@@ -10,6 +10,12 @@
 #define ROCKEY_I18N_STRINGS_H
 
 #define ROCKEY_STRING_TABLE(X)                                                                       \
+  X(kBrowserConnected, "Connected", "已连接", "已連接", "已連接", "接続済み") \
+  X(kBrowserDisconnected, "Disconnected", "未连接", "未連接", "未連接", "未接続") \
+  X(kNetworkTitle, "Select network", "选择网络", "選擇網路", "選擇網絡", "ネットワークを選択") \
+  X(kNetworkChoose, "Choose Main or Test", "请选择主网或测试网", "請選擇主網或測試網", "請選擇主網或測試網", "メインネットかテストネットを選択") \
+  X(kSavingWallet, "Saving wallet...", "正在保存钱包…", "正在儲存錢包…", "正在儲存錢包…", "ウォレットを保存中…") \
+  X(kEmptyWallet, "Wallet empty. Create a key or import from Keymaster.", "钱包为空。可创建私钥，或从 Keymaster 导入。", "錢包為空。可建立私鑰，或從 Keymaster 匯入。", "錢包為空。可建立私鑰，或從 Keymaster 匯入。", "ウォレットは空です。鍵を作成するか Keymaster から取り込んでください。") \
   X(kImportTitle, "Import same key", "导入同一私钥", "匯入同一私鑰", "匯入同一私鑰", "同じ鍵を取り込む") \
   X(kImportWaiting, "Connect Keymaster to import", "连接 Keymaster 导入", "連接 Keymaster 匯入", "連接 Keymaster 匯入", "Keymaster を接続して取り込む") \
   X(kImportWarning, "Import this identity and its payment ledger. Software password is not kept on device.", "导入此身份与付款账本。设备不保存软件密码封装。", "匯入此身份與付款帳本。裝置不保留軟件密碼封裝。", "匯入此身份與付款帳本。裝置不保留軟件密碼封裝。", "この識別情報と支払台帳を取り込む。ソフトウェアの暗号化鍵は保存しない。") \
@@ -73,6 +79,14 @@
   X(kMenuTitle, "Menu", "菜单", "選單", "選單", "メニュー")                                           \
   X(kMenuReview, "Review request", "查看待确认请求", "檢視待確認請求", "檢視待確認請求",                \
     "確認待ちの要求")                                                                                \
+  X(kChannelSettings, "Channel settings", "渠道设置", "渠道設定", "渠道設定", "チャネル設定") \
+  X(kChannelEmpty, "No registered channels", "尚无注册渠道", "尚無註冊渠道", "尚無註冊渠道", "登録チャネルなし") \
+  X(kChannelMode, "Approval mode", "授权模式", "授權模式", "授權模式", "許可モード") \
+  X(kChannelSingle, "Single limit (sat)", "单笔免确认上限", "單筆免確認上限", "單筆免確認上限", "単発の確認不要上限") \
+  X(kChannelTotal, "Session limit (sat)", "会话免确认总额", "會話免確認總額", "會話免確認總額", "セッション確認不要上限") \
+  X(kChannelAutomatic, "Automatic", "自动授权", "自動授權", "自動授權", "自動承認") \
+  X(kChannelManual, "Manual", "手动授权", "手動授權", "手動授權", "手動承認") \
+  X(kChannelSave, "Hold middle to save", "长按中键保存", "長按中鍵儲存", "長按中鍵儲存", "中央長押しで保存") \
   X(kMenuGrants, "Session decisions", "会话决定", "會話決定", "會話決定", "セッション決定")             \
   X(kMenuDeviceInfo, "Device info", "设备信息", "裝置資訊", "裝置資訊", "デバイス情報")                 \
   X(kMenuKeyDetail, "Full public key", "完整公钥", "完整公鑰", "完整公鑰", "公開鍵全体")                 \

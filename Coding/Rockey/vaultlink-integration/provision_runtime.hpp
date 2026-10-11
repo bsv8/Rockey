@@ -12,12 +12,16 @@ class ProvisionNetworkQuery final : public vaultlink::Operation {
   bool allowed() override{return keys.ready()||keystore::KeyStore::IsUnlocked();}
   vaultlink::Value execute() override {
     vaultlink::require(allowed(),"locked");
-    const auto network=keystore::KeyStore::HasKey()?keystore::KeyStore::Info_().bsvNetwork:keys.network();
-    return vaultlink::obj({{"bsvNetwork",network==keystore::BsvNetwork::Test?"test":"main"}});
+    if(!keystore::KeyStore::HasKey())return vaultlink::obj({{"bsvNetwork",vaultlink::Value()}});
+    const auto info=keystore::KeyStore::Info_();
+    vaultlink::require(info.initialized,"network-identity-required");
+    return vaultlink::obj({{"bsvNetwork",info.bsvNetwork==keystore::BsvNetwork::Test?"test":"main"},
+      {"publicKey",vaultlink::Bytes(info.pubkey,info.pubkey+33)}});
   }
 };
 class ProvisionRuntime {
-  MigrationStore store;vaultlink::MigrationJournal journal;
+  class Staging final:public vaultlink::Store {vaultlink::Bytes bytes;public:vaultlink::Bytes load()override{return bytes;}void save(const vaultlink::Bytes& b)override{bytes=b;}} store;
+  vaultlink::MigrationJournal journal;
   std::unique_ptr<vaultlink::IdentityKey> identity;
   std::unique_ptr<ImportRequests> requests;
   std::unique_ptr<vaultlink::Endpoint> endpoint;
@@ -34,6 +38,8 @@ class ProvisionRuntime {
       [this,clear]{keys.clear();keystore::KeyStore::Lock();clear();},std::move(pair));
     endpoint->set_pairing_poll(std::move(pairPoll));endpoint->set_capabilities({Value(uint64_t(0x232))});
   }
+  bool connected()const{return endpoint && endpoint->connected();}
+  bool receiving()const{return journal.pending();}
   void poll(){endpoint->poll();}
   ~ProvisionRuntime(){endpoint.reset();requests.reset();identity->lock();keys.clear();keystore::KeyStore::Lock();}
 };

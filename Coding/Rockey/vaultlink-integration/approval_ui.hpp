@@ -16,6 +16,7 @@ struct Review {
   uint64_t minimum_limit=0;
   bool can_remember=false;
   bool requires_pin=false;
+  bool creates_pin=false;
 };
 // Only firmware button handling may produce Approval. There is no USB field
 // that supplies a PIN verification or an approve/deny boolean.

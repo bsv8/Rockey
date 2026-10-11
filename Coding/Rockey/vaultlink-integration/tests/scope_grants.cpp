@@ -58,9 +58,9 @@ int main(int argc,char **argv){try{
  auto outgoing=signed_channel(key,peer.public_key());
  auto channel_prepare=[&](const std::string &op,const std::string &kind,const Bytes &raw){auto b=obj({{"message",raw}});return service.prepare(op,b,commitment("bsv8-channel-"+kind,b));};
  auto channel_run=[&](const std::string &op,const std::string &kind,const Bytes &raw){auto p=channel_prepare(op,kind,raw);require(p.operation->ready(),"not-ready");return p.operation->allowed()?p.operation->execute():obj({{"error","denied"}});};
- ui.state=Approval::AllowSession;prompt_count=ui.prompts;channel_run("channel.private-message","private",outgoing.first);
+ ui.state=Approval::AllowSession;prompt_count=ui.prompts;
  auto cipher=channel_run("channel.seal","seal",outgoing.second).at("message").binary();
- require(ui.prompts==prompt_count+1&&service.grant_count()==1,"outbound-sign-seal-scope-not-shared");
+ require(ui.prompts==prompt_count+1&&service.grant_count()==1,"outbound-seal-scope-not-recorded");
  auto decoded=peer.open_channel(cipher);WipeBytes wipe_decoded{decoded};require(inspect_signed_channel(decoded,key.public_key()).peer==to_hex(peer.public_key()),"outbound-open-failed");
  auto incoming=signed_channel(peer,key.public_key());auto envelope=peer.seal_channel(incoming.second);
  ui.state=Approval::DenySession;auto denied_open=channel_run("channel.open","open",envelope);

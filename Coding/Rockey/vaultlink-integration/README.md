@@ -18,7 +18,7 @@ Controller 的 A/C 滚动，A 长按拒绝，读到末尾并释放旧按键后 B
 ```sh
 ROCKEY_PYTHON=/path/to/venv/bin/python \
 ROCKEY_NM=/path/to/xtensa-esp32-elf-nm \
-scripts/build.sh m5stack-core-en m5stack-core-zh-hans
+tools/build/main.sh m5stack-core-en m5stack-core-zh-hans
 ```
 
 构建脚本按语言生成现有固定开源字体、运行主机门禁、编译真实固件并扫描发布 ELF。修复了旧入口未定义 Python PlatformIO 包装函数的问题；不再硬编码某台机器的工具目录。ESP32 框架缺失的 HKDF/RIPEMD160 模块来自 `Coding/Rockey/mbedtls-extra` 固定上游源码，含许可证和文件 hash。
@@ -173,3 +173,7 @@ RocKey 宿主检查 1519 项通过，包含 64KB 账本递增世代、流式 CRC
 - 有 Key 的设备走原 PIN 解锁后的迁移证明；无 Key 的暂存恢复重新在本机设置 PIN，不能通过主机提供 PIN。
 
 2026-10-11 Git 归档：VLP SDK 已提交为 `e15c9d061dd3d379167941590b67a4e8439d49f3`。本项目消费清单的 sourceCommit 已固定到该提交，移除此前未提交增量的 sourceOverrides；逐文件校验仍全部通过。上文未提交状态为对应日期的施工历史。
+
+## 2026-10-11 渠道授权施工增量
+
+SDK 以网络身份提交 `5e91963068a90e8d0d216ca2b9aba318f5b4c869` 为基线。本轮渠道授权仍为工作区施工增量，消费清单记录当前逐文件 SHA256 和快照摘要，不宣称这些增量已包含在基线提交中。需求、本机策略设置及实体 USB 待验收边界见本项目 2026-10-11 渠道授权需求与施工单。

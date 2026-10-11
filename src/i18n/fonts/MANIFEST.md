@@ -1,6 +1,6 @@
 # Rockey 字体清单
 
-> 本文件由 `tools/genfont.py` 生成，记录每次构建实际编入的字库。
+> 本文件由 `tools/fonts/main.py` 生成，记录每次构建实际编入的字库。
 
 - 生成时间来源：构建脚本（不写入时间戳以保持可重复构建）
 - LANG：`zh-Hans`
@@ -16,7 +16,7 @@
 | `fp-mono-latin` | fusion-pixel-12px-monospaced-latin.otf | 4928652 | `d48931d0f47d1ffaba5d6965e2de6a65c0683948faba640d8f2d393a9577d58b` | OFL-1.1 |
 | `fp-prop-latin` | fusion-pixel-12px-proportional-latin.otf | 4938652 | `9847709e8e09e9b8b060a96c3df61a16509c65910dbbcb8ca14eab923641be8f` | OFL-1.1 |
 
-许可证全文随源文件保存在 `tools/fontsrc/licenses`（SIL Open Font License 1.1）。
+许可证全文随源文件保存在 `tools/fonts/sources/licenses`（SIL Open Font License 1.1）。
 
 ## 实际编入的字形
 

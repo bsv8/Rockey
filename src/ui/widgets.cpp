@@ -10,6 +10,7 @@
 namespace rockey {
 namespace ui {
 namespace {
+bool browserConnected = false;
 
 Rect HeaderRect() { return Rect{0, 0, Board::kScreenW, Board::kHeaderH}; }
 Rect FooterRect() { return Rect{0, Board::kFooterY, Board::kScreenW, Board::kFooterH}; }
@@ -19,7 +20,9 @@ Rect ContentRect() {
 
 }  // namespace
 
+void SetBrowserConnected(bool connected) { browserConnected=connected; }
 void DrawHeader(const char* title, const char* rightHint) {
+  rightHint=i18n::T(browserConnected?i18n::Str::kBrowserConnected:i18n::Str::kBrowserDisconnected);
   Rect r = HeaderRect();
   Display::Fill(r, color::kDim);
   int h = FontLineHeight(FontRole::kSmall);

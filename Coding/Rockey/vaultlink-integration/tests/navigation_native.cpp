@@ -29,7 +29,7 @@ struct NavigationProbe {
     require(KeyStore::SetPinAndWrap("12345678",8,key, rockey::keystore::BsvNetwork::Main)==keystore::Status::kOk&&KeyStore::Unlock("12345678",8)==keystore::Status::kOk,"key-init");
     App app;app.buttons_.Init({});app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
     Display::Init();app.Go(App::Screen::kMenu);app.DrawMenu();
-    require(app.menu_.count==10,"menu-count");
+    require(app.menu_.count==11,"menu-count");
     sound::player=sound::Player(observeSound);
     require(sound::Enabled(false)&&sound::Enabled(true),"sound-not-default-on");
     app.menuSelected_=8;app.OnButton(Btn::kB,BtnEvent::kShortPress);
@@ -49,6 +49,22 @@ struct NavigationProbe {
     require((soundOutput==std::vector<uint16_t>{1700,0,2300}),"enable-manual-did-not-preview-double");
     app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require((soundOutput==std::vector<uint16_t>{1700,0,2300,0}),"disable-manual-played-a-tone");
+    // 真实本机二级菜单修改持久策略，USB 没有对应的修改能力。
+    {vlp::PolicyStore files;vaultlink::Policy policy(files,vaultlink::to_hex(vaultlink::Bytes(KeyStore::PublicKey(),KeyStore::PublicKey()+33)),vaultlink::sha256,"main");
+      policy.register_signing(vaultlink::Value::list({vaultlink::obj({{"id","identity.noise-proof"},{"owner","window-p2p"},{"kind","plugin"},{"operation","identity.noise-proof"},{"mode","automatic"},{"revision",vaultlink::Value(uint64_t(1))}})}),true);
+      policy.configure(vaultlink::Channel{"checkout","p2pkh",100,0,1,true,"plugin","p2pkh"},true);
+    }
+    app.vaultlink_->poll();app.menuSelected_=10;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kChannels&&KeyStore::IsUnlocked(),"channel-menu-locked");
+    app.OnButton(Btn::kB,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kLongPress);app.OnButton(Btn::kB,BtnEvent::kHoldRepeat);app.OnButton(Btn::kB,BtnEvent::kRelease);
+    {vlp::PolicyStore files;auto bank=vaultlink::decode(files.load(),65536);require(bank.at("signing").array[0].at("mode").string()=="manual"&&bank.at("signing").array[0].at("revision").integer()==2,"channel-mode-not-persisted");}
+    app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.OnButton(Btn::kA,BtnEvent::kLongPress);app.OnButton(Btn::kA,BtnEvent::kHoldRepeat);app.OnButton(Btn::kA,BtnEvent::kRelease);app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kLongPress);app.OnButton(Btn::kB,BtnEvent::kHoldRepeat);app.OnButton(Btn::kB,BtnEvent::kRelease);
+    {vlp::PolicyStore files;auto bank=vaultlink::decode(files.load(),65536);require(bank.at("channels").array[0].at("singleLimit").integer()==101,"channel-amount-not-persisted");}
+    app.OnButton(Btn::kA,BtnEvent::kLongPress);require(app.screen_==App::Screen::kMenu&&KeyStore::IsUnlocked(),"channel-back-locked");
     app.menuSelected_=0;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(app.screen_==App::Screen::kError&&KeyStore::IsUnlocked(),"empty-request-changed-key");
     app.OnButton(Btn::kC,BtnEvent::kShortPress);
@@ -101,6 +117,66 @@ struct NavigationProbe {
     }
     require(busyText,"busy-screen-text-missing");app.Draw();
     app.vaultlink_.reset();KeyStore::Lock();
+    // Persist an actual interrupted import, then recreate the controller as
+    // on reboot. Idle polling must not start the erased-export EC runtime.
+    const auto original=KeyStore::Info_();
+    require(KeyStore::Erase(),"cleanup-before-import-regression");
+    vlp::MigrationStore migrationFiles;vaultlink::MigrationJournal journal(migrationFiles);
+    journal.begin(vaultlink::obj({{"version",uint64_t(1)},
+      {"id","11111111-1111-4111-8111-111111111111"},
+      {"walletGeneration","22222222-2222-4222-8222-222222222222"},
+      {"publicKey",vaultlink::Bytes(original.pubkey,original.pubkey+33)},
+      {"sourceHash",vaultlink::Bytes(32,1)},{"policyHash",vaultlink::Bytes(32,2)},
+      {"direction","to-hardware"},{"phase","staged"},{"targetHash",vaultlink::Value()}}));
+    for(int boot=0;boot<2;++boot){
+      vlp::Controller recovered(app.buttons_);
+      for(int tick=0;tick<100;++tick)recovered.poll();
+      require(recovered.recovery_start_attempts==0,"staged-import-started-erased-runtime");
+      require(journal.status().at("phase").string()=="staged"&&!KeyStore::HasKey(),"idle-poll-mutated-import");
+      recovered.arm_import("12345678",8,keystore::BsvNetwork::Main);
+      recovered.poll();
+      require(bool(recovered.provision_runtime),"staged-import-cannot-resume");
+      recovered.lock();
+    }
+    require(store::Remove("/vault/vlp-migration.bin"),"remove-regression-journal");
+    app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
+    app.Go(App::Screen::kInitializeChoice);app.vaultlink_->prepare_empty();
+    app.vaultlink_->poll();
+    require(!KeyStore::HasKey()&&!app.vaultlink_->provision_keys.has_pin(),"empty-home-created-key-or-pin");
+    // Browser connection is a status, never a creation permission gate.
+    app.vaultlink_->connected_=true;
+    app.OnButton(Btn::kA,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kSetPin&&!KeyStore::HasKey(),"connected-empty-home-blocked-create");
+    memcpy(app.newPin_,"12345678",9);app.newPinLen_=8;
+    memcpy(app.pin_,"1234567",8);app.pinLen_=7;app.pinDigit_=8;app.Go(App::Screen::kSetPinConfirm);
+    app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kNetworkChoice&&!KeyStore::HasKey(),"new-pin-persisted-before-final-choice");
+    app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kNetworkChoice&&!KeyStore::HasKey(),"middle-button-created-key");
+    app.OnButton(Btn::kC,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kMenu&&KeyStore::IsUnlocked()&&KeyStore::Info_().bsvNetwork==keystore::BsvNetwork::Test,"test-button-did-not-save-test-key");
+    require(KeyStore::Erase(),"remove-native-test-key");
+    memcpy(app.newPin_,"12345678",9);app.newPinLen_=8;app.Go(App::Screen::kNetworkChoice);
+    app.OnButton(Btn::kA,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kMenu&&KeyStore::IsUnlocked()&&KeyStore::Info_().bsvNetwork==keystore::BsvNetwork::Main,"main-button-did-not-save-main-key");
+    require(KeyStore::Erase(),"remove-native-created-key");
+    app.Go(App::Screen::kInitializeChoice);
+    auto& controller=*app.vaultlink_;controller.prepare_empty();
+    vlp::Review importReview;importReview.operation="migration.import-key";importReview.requires_pin=true;importReview.creates_pin=true;
+    controller.begin(importReview);controller.draw();
+    const auto pinFills=fullScreenFills;
+    controller.button(Btn::kC,BtnEvent::kShortPress);controller.draw();
+    require(fullScreenFills==pinFills,"import-pin-digit-flashed-screen");
+    controller.pin.previous();
+    for(int phase=0;phase<2;++phase){
+      for(char digit:std::string("12345678")){
+        for(char n='0';n<digit;++n)controller.button(Btn::kC,BtnEvent::kShortPress);
+        controller.button(Btn::kB,BtnEvent::kShortPress);
+      }
+      if(!phase)require(controller.entering_pin&&controller.confirming_new_pin&&!controller.provision_keys.has_pin(),"pin-not-repeated-before-save");
+    }
+    require(controller.answer.state==vlp::Approval::Once&&controller.answer.pin_verified&&controller.provision_keys.has_pin()&&!KeyStore::HasKey(),"import-pin-setup-not-local-or-prematurely-written");
+    controller.lock();
     puts("App navigation: empty-request back, left buttons, page back and lock-free menu passed.");
   }
 };

@@ -12,6 +12,7 @@
 #include "pin_reauthentication.hpp"
 #include <Arduino.h>
 #include "../e2e/device.hpp"
+namespace rockey { struct NavigationProbe; }
 namespace rockey::vlp {
 class SerialTransport final : public vaultlink::ByteTransport {
  public:
@@ -33,6 +34,7 @@ class SerialTransport final : public vaultlink::ByteTransport {
 };
 // PIN 页面仍归 App；解锁后 USB 只有此控制器读串口，旧 wire 不降级接收。
 class Controller final : public ApprovalUI {
+  friend struct ::rockey::NavigationProbe;
   Buttons& buttons;
   PolicyStore store;
   SerialTransport transport;
@@ -41,6 +43,28 @@ class Controller final : public ApprovalUI {
   ProvisionKeys provision_keys;
   std::unique_ptr<ProvisionRuntime> provision_runtime;
   uint32_t provision_started=0;
+  bool recovery_checked=false, recovery_available=false;
+#if defined(ROCKEY_HOST_UI_TEST)
+  unsigned recovery_start_attempts=0;
+#endif
+  bool erased_recovery_available(bool has_key) {
+    if(has_key){recovery_checked=false;recovery_available=false;return false;}
+    if(recovery_checked)return recovery_available;
+    recovery_checked=true;recovery_available=false;
+    // A staged import has no key yet, but is not an erased export. Inspect
+    // once while idle: repeated failed EC identity construction starves GPIO
+    // sampling, including after reboot with the same persisted journal.
+    try {
+      MigrationStore disk;vaultlink::MigrationJournal journal(disk);
+      const auto r=journal.status();
+      if(r.kind!=vaultlink::Value::Null){
+        const auto phase=r.at("phase").string();
+        recovery_available=r.at("direction").string()=="to-software"
+          &&(phase=="erasing"||phase=="erased"||phase=="complete");
+      }
+    }catch(...){/* Preserve corrupt records; never enable a wallet or erase. */}
+    return recovery_available;
+  }
   Review review;
   Approval answer;
   std::vector<std::string> lines;
@@ -51,13 +75,19 @@ class Controller final : public ApprovalUI {
   int drawn_percent = -1;
   ui::HoldConfirm hold;
   PinReauthentication pin;
+  secure::SecretBytes<ROCKEY_PIN_MAX_DIGITS+1> first_pin;
+  bool confirming_new_pin=false, connected_=false;
+  bool pin_frame=false,pin_frame_confirm=false;
+  size_t pin_frame_entered=0;
   bool entering_pin=false;
   bool export_armed=false;
   static int random(void*, unsigned char* out, size_t count) { rand::Fill(out, count); return 0; }
   static const char* label(const std::string& key) {
     using i18n::Str;
     Str s = Str::kVlpChannel;
-    if(key=="operation")s=Str::kSumOperation;
+    if(key=="mode")s=Str::kChannelMode;
+    else if(key=="owner")s=Str::kVlpOwner;
+    else if(key=="operation")s=Str::kSumOperation;
     else if(key=="risk")s=Str::kSumRisks;
     else if(key=="scope")s=Str::kSumScope;
     else if(key=="objectHash")s=Str::kSumObject;
@@ -109,6 +139,9 @@ class Controller final : public ApprovalUI {
  public:
   explicit Controller(Buttons& b) : buttons(b) {}
   bool active_ui() const { return visible; }
+  bool connected()const{return connected_;}
+  bool import_busy()const{return (visible&&!pairing)||(provision_runtime&&provision_runtime->receiving());}
+  void prepare_empty(){if(!importing()&&!keystore::KeyStore::HasKey()){lock();provision_keys.arm_empty();provision_started=::millis();}}
 #if defined(ROCKEY_DEV_BUTTON_API)
   uint32_t testReviews=0;
   char testFault[48]{};
@@ -126,6 +159,10 @@ class Controller final : public ApprovalUI {
   void arm_import(const char* p,size_t n,keystore::BsvNetwork network){lock();provision_keys.arm(p,n,network);provision_started=::millis();}
   bool importing()const{return bool(provision_runtime)||provision_keys.ready();}
   void cancel_export(){export_armed=false;}
+  vaultlink::Value signing_channels() const{vaultlink::require(bool(runtime),"locked");return runtime->signing_channels();}
+  vaultlink::Value payment_channels() const{vaultlink::require(bool(runtime),"locked");return runtime->payment_channels();}
+  void configure_signing(const std::string& id,const std::string& mode,uint64_t revision){vaultlink::require(bool(runtime),"locked");runtime->configure_signing(id,mode,revision);}
+  void configure_payment(const vaultlink::Channel& c){vaultlink::require(bool(runtime),"locked");runtime->configure_payment(c);}
   size_t grant_count() const{return runtime?runtime->grant_count():0;}
   ScopeGrants::Entry grant(size_t i) const{
     vaultlink::require(bool(runtime),"locked");auto entry=runtime->grant(i);
@@ -153,24 +190,27 @@ class Controller final : public ApprovalUI {
       }, [this] { return pair_answer; }, [this] { clear(); },
       [this]{return export_armed;},[this]{export_armed=false;});
   }
-  void lock() { runtime.reset();erased_runtime.reset();provision_runtime.reset();provision_keys.clear(); clear();export_armed=false; }
+  void lock() { if(runtime||provision_runtime||provision_keys.ready())recovery_checked=false;runtime.reset();erased_runtime.reset();provision_runtime.reset();provision_keys.clear(); clear();export_armed=false;connected_=false;ui::SetBrowserConnected(false); }
   void poll() {
     const bool importing_=importing();
-    if(importing_&&uint32_t(::millis()-provision_started)>ROCKEY_REQUEST_TTL_MS){lock();return;}
-    const bool erased=!keystore::KeyStore::HasKey()&&store::Exists("/vault/vlp-migration.bin");
+    const bool erased=!importing_&&erased_recovery_available(keystore::KeyStore::HasKey());
     if(!importing_&&!erased&&!keystore::KeyStore::IsUnlocked()){lock();return;}
     try {
       if(importing_){
         if(!provision_runtime){auto run=rand::U32();if(!run)run=1;
           provision_runtime=std::make_unique<ProvisionRuntime>(transport,random,run,*this,provision_keys,
             [this](const std::string& code){begin(Review{"pair","","",{{"pair",code}}});pairing=true;pair_answer=0;return false;},
-            [this]{return pair_answer;},[this]{clear();});}
+            [this]{return pair_answer;},[this]{connected_=false;clear();});}
         provision_runtime->poll();
+        if(!provision_keys.ready()&&!keystore::KeyStore::HasKey()){lock();return;}
       }else if(erased){
         if(!erased_runtime){auto run=rand::U32();if(!run)run=1;
+#if defined(ROCKEY_HOST_UI_TEST)
+          ++recovery_start_attempts;
+#endif
           erased_runtime=std::make_unique<ErasedMigrationRuntime>(transport,random,run,*this,
             [this](const std::string& code){begin(Review{"pair","","",{{"pair",code}}});pairing=true;pair_answer=0;return false;},
-            [this]{return pair_answer;},[this]{clear();});}
+            [this]{return pair_answer;},[this]{connected_=false;clear();});}
         erased_runtime->poll();
       }else{start();runtime->poll();}
     }
@@ -181,6 +221,8 @@ class Controller final : public ApprovalUI {
       keystore::KeyStore::Lock(); lock();
     }
     catch (...) { keystore::KeyStore::Lock(); lock(); }
+    connected_=(runtime&&runtime->connected())||(provision_runtime&&provision_runtime->connected())||(erased_runtime&&erased_runtime->connected());
+    ui::SetBrowserConnected(connected_);
     if(!importing_&&!erased&&!keystore::KeyStore::IsUnlocked()){lock();return;}
     if (!visible) return;
     if(entering_pin){if(redraw)draw();return;}
@@ -188,7 +230,7 @@ class Controller final : public ApprovalUI {
     hold.Update(buttons, ::millis(), read);
     if (hold.Fired()) {
       if (pairing) {
-        pair_answer = 1; visible = false; hold.Reset(); buttons.ArmReleaseGate();
+        pair_answer = 1; connected_=true;visible = false; hold.Reset(); buttons.ArmReleaseGate();
         // 确认后等待 Endpoint 发送 PAIR_OK，不能重画已经关闭的核对页。
         return;
       }
@@ -196,7 +238,8 @@ class Controller final : public ApprovalUI {
         answer = {remember ? Approval::AllowSession : raise ? Approval::Raise : Approval::Once, raised,pin.verified()};
         hold.Reset(); buttons.ArmReleaseGate();
       }
-      redraw = true;
+      // 决定已交给 Endpoint，下轮执行并关闭页面；不得在长按结束时重画整屏。
+      return;
     }
     if (redraw) draw();
     const auto percent=hold.Percent(::millis());
@@ -206,7 +249,7 @@ class Controller final : public ApprovalUI {
     if (!visible) return false;
     if(entering_pin) {
       if(b==Btn::kA&&event==BtnEvent::kLongPress) {
-        pin.clear();entering_pin=false;answer.state=Approval::Denied;redraw=true;return true;
+        pin.clear();entering_pin=false;answer.state=Approval::Denied;if(review.creates_pin)provision_keys.clear();redraw=true;return true;
       }
       if(b==Btn::kB&&event==BtnEvent::kLongPress){pin.back();buttons.ArmReleaseGate();redraw=true;return true;}
       if(event==BtnEvent::kShortPress||event==BtnEvent::kHoldRepeat) {
@@ -215,6 +258,18 @@ class Controller final : public ApprovalUI {
         if(b==Btn::kB&&event==BtnEvent::kShortPress) {
           auto result=pin.select();
           if(result!=PinReauthentication::Pending) {
+            if(review.creates_pin){
+              if(result==PinReauthentication::Failed){answer.state=Approval::Denied;entering_pin=false;first_pin.Clear();provision_keys.clear();}
+              else if(!confirming_new_pin){confirming_new_pin=true;start_new_pin();}
+              else {
+                entering_pin=false;answer={Approval::Once,0,true};first_pin.Clear();
+                // Paint before the next poll runs PBKDF2 and final Flash commit.
+                Display::FillScreen(color::kBlack);
+                const char* text=i18n::T(i18n::Str::kSavingWallet);
+                Display::DrawTextIn(Rect{0,100,320,40},FontRole::kSmall,text,strlen(text),color::kWhite,color::kBlack,TextAlign::kCenter,VAlign::kMiddle);
+              }
+              buttons.ArmReleaseGate();redraw=true;return true;
+            }
             entering_pin=false;hold.Reset();buttons.ArmReleaseGate();
             if(result==PinReauthentication::Failed)answer.state=Approval::Denied;
           }
@@ -265,7 +320,8 @@ class Controller final : public ApprovalUI {
     pin.clear();entering_pin=r.requires_pin;
     if(entering_pin){
       vaultlink::require(!r.can_remember&&!r.can_raise,"physical-confirmation-required");
-      const bool ok=provision_keys.ready()?pin.begin_local(provision_keys.digits(),[this](const char* p,size_t n){return provision_keys.authenticate(p,n,::millis());}):pin.begin();
+      if(r.creates_pin){confirming_new_pin=false;first_pin.Clear();start_new_pin();}
+      const bool ok=r.creates_pin|| (provision_keys.has_pin()?pin.begin_local(provision_keys.digits(),[this](const char* p,size_t n){return provision_keys.authenticate(p,n,::millis());}):pin.begin());
       vaultlink::require(ok,"locked");
     }
     position = furthest = 0; lines.clear();
@@ -282,12 +338,26 @@ class Controller final : public ApprovalUI {
     visible = redraw = true; drawn_percent=-1; hold.Reset(); buttons.ArmReleaseGate();
   }
   Approval decision() override { return answer; }
-  void clear() override { visible = false; pairing = false; lines.clear(); hold.Reset(); answer = {};pin.clear();entering_pin=false; }
+  void clear() override { visible = false; pairing = false; lines.clear(); hold.Reset(); answer = {};pin.clear();entering_pin=false;first_pin.Clear();confirming_new_pin=false;pin_frame=false; }
+  void start_new_pin(){
+    vaultlink::require(pin.begin_local(ROCKEY_PIN_DEFAULT_DIGITS,[this](const char* p,size_t n){
+      if(!confirming_new_pin){memcpy(first_pin.data(),p,n);return true;}
+      if(!secure::ConstEq(first_pin.data(),p,n))return false;
+      provision_keys.set_pin(p,n);return true;
+    }),"invalid-pin");
+  }
   void automatically_approved(const Review&) override { sound::Notify(false,::millis()); }
   void draw() {
+    if(entering_pin&&pin_frame&&pin_frame_confirm==confirming_new_pin&&pin_frame_entered==pin.entered()){
+      Display::Fill(Rect{150,112,30,FontLineHeight(FontRole::kSmall)},color::kBlack);
+      const char digit=char('0'+pin.digit());
+      Display::DrawText(FontRole::kSmall,150,112,&digit,1,color::kYellow,color::kBlack);
+      redraw=false;return;
+    }
     Display::FillScreen(color::kBlack);
     if(entering_pin) {
-      ui::DrawHeader(i18n::T(i18n::Str::kLockTitle),nullptr);
+      pin_frame=true;pin_frame_confirm=confirming_new_pin;pin_frame_entered=pin.entered();
+      ui::DrawHeader(i18n::T(review.creates_pin?(confirming_new_pin?i18n::Str::kLockConfirmPin:i18n::Str::kLockSetPin):i18n::Str::kLockTitle),nullptr);
       const auto hidden=std::string(pin.entered(),'*')+"_"+std::string(pin.required()-pin.entered()-1,'_');
       Display::DrawText(FontRole::kSmall,12,70,hidden.data(),hidden.size(),color::kWhite,color::kBlack);
       const char digit=char('0'+pin.digit());

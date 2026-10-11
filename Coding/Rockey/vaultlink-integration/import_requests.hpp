@@ -13,18 +13,25 @@ class ImportRequests {
   vaultlink::MigrationJournal& journal;ProvisionKeys* keys;ApprovalUI& ui;vaultlink::Rng rng;
   static constexpr const char* meta_path="/vault/vlp-import-meta.bin";
   static constexpr const char* bank_path="/vault/vlp-import-stage.bin";
-  static Bytes read(const char* path,size_t cap){
+  Bytes meta_ram,bank_ram;
+  Bytes read(const char* path,size_t cap){
+    if(keys)return std::string(path)==meta_path?meta_ram:bank_ram;
     using namespace vaultlink;require(store::Available(),"storage-unavailable");
     if(!store::Exists(path))return {};Bytes b(cap);size_t n=0;
     require(store::ReadRecord(path,b.data(),b.size(),&n,nullptr)&&n>0,"corrupt-import-stage");b.resize(n);return b;
   }
-  static void write(const char* path,const Bytes& bytes){vaultlink::require(!bytes.empty()&&store::WriteRecord(path,1,bytes.data(),bytes.size(),nullptr),"storage-failed");}
+  void write(const char* path,const Bytes& bytes){if(keys){(std::string(path)==meta_path?meta_ram:bank_ram)=bytes;return;}vaultlink::require(!bytes.empty()&&store::WriteRecord(path,1,bytes.data(),bytes.size(),nullptr),"storage-failed");}
+  void write_persistent_stage(const Value& r,const Bytes& bank){
+    const auto meta=meta_ram;
+    vaultlink::require(!meta.empty()&&store::WriteRecord(meta_path,1,meta.data(),meta.size(),nullptr)
+      &&store::WriteRecord(bank_path,1,bank.data(),bank.size(),nullptr),"storage-failed");
+  }
   Value metadata(const std::string& id){using namespace vaultlink;auto b=read(meta_path,128);require(!b.empty(),"import-stage-missing");auto m=decode(b,128);m.fields({"id","size"});require(m.at("id").string()==id&&m.at("size").integer()>0&&m.at("size").integer()<=65536,"migration-conflict");return m;}
   Bytes complete_bank(const Value& record){
     using namespace vaultlink;auto m=metadata(record.at("id").string());auto bank=read(bank_path,65536);
     require(bank.size()==m.at("size").integer()&&sha256(bank)==record.at("policyHash").binary(32),"import-stage-incomplete");
     struct Validation final:Store {Bytes bytes;explicit Validation(Bytes b):bytes(std::move(b)){}Bytes load()override{return bytes;}void save(const Bytes& b)override{require(b==bytes,"non-canonical-import-policy");}} validation(bank);
-    auto source=decode(bank,65536);require(source.at("version").integer()==2||source.at("version").integer()==3,"unsupported-policy-version");
+    auto source=decode(bank,65536);require(source.at("version").integer()==2||source.at("version").integer()==3||source.at("version").integer()==4,"unsupported-policy-version");
     for(const auto& p:source.at("pending").array)require(p.at("state").string()!="reserved","migration-payment-busy");
     const auto network=keys&&keys->ready()?keys->network():keystore::KeyStore::Info_().bsvNetwork;
     Policy policy(validation,to_hex(record.at("publicKey").binary(33)),sha256,network==keystore::BsvNetwork::Test?"test":"main");return bank;
@@ -59,15 +66,16 @@ class ImportRequests {
     require(!profile.empty(),"unsupported");require(commitment(profile,body)==hash,"invalid-commitment");
     if(op=="migration.status"){body.fields({});return {profile,body,std::make_unique<Action>([this]{return obj({{"migration",journal.status()}});})};}
     if(op=="migration.import-begin"){
-      body.fields({"id","walletGeneration","publicKey","sourceHash","policyHash","size"});
+      body.fields({"id","walletGeneration","publicKey","sourceHash","policyHash","size","bsvNetwork"});
+      const auto network=body.at("bsvNetwork").string();require(network=="main"||network=="test","invalid-network-identity");
       require(keys&&keys->ready()&&!keystore::KeyStore::HasKey(),"device-import-not-armed");
       const auto size=body.at("size").integer();require(size>0&&size<=65536,"invalid-size");
       auto r=inspect_device_migration(obj({{"version",uint64_t(1)},{"id",body.at("id")},{"walletGeneration",body.at("walletGeneration")},
         {"publicKey",body.at("publicKey")},{"sourceHash",body.at("sourceHash")},{"policyHash",body.at("policyHash")},{"direction","to-hardware"},{"phase","staged"},{"targetHash",Value()}}));
-      return {profile,body,std::make_unique<Action>([this,r,size]{
-        require(keys&&keys->ready()&&!keystore::KeyStore::HasKey(),"device-import-not-armed");journal.begin(r);
+      return {profile,body,std::make_unique<Action>([this,r,size,network]{
+        require(keys&&keys->ready()&&!keystore::KeyStore::HasKey(),"device-import-not-armed");keys->set_network(network=="test"?keystore::BsvNetwork::Test:keystore::BsvNetwork::Main);journal.begin(r);
         auto old=read(meta_path,128);if(!old.empty())require(encode(metadata(r.at("id").string()),128)==encode(obj({{"id",r.at("id")},{"size",size}}),128),"migration-conflict");
-        else {require(!store::Exists(bank_path),"corrupt-import-stage");write(meta_path,encode(obj({{"id",r.at("id")},{"size",size}}),128));}
+        else {require(keys||!store::Exists(bank_path),"corrupt-import-stage");write(meta_path,encode(obj({{"id",r.at("id")},{"size",size}}),128));}
         return obj({{"migration",journal.status()}});
       })};
     }
@@ -98,7 +106,9 @@ class ImportRequests {
       return {profile,body,std::make_unique<Action>([this,body]{
         const auto id=body.at("id").string();auto now=journal.status();
         if(now.at("phase").string()=="device-committed")journal.advance(id,"host-committed",body.at("targetHash"));
-        journal.advance(id,"complete",body.at("targetHash"));return obj({{"migration",journal.status()}});
+        journal.advance(id,"complete",body.at("targetHash"));
+        if(keys){MigrationStore disk;MigrationJournal persisted(disk);if(persisted.status().at("phase").string()=="device-committed")persisted.advance(id,"host-committed",body.at("targetHash"));persisted.advance(id,"complete",body.at("targetHash"));}
+        return obj({{"migration",journal.status()}});
       })};
     }
     body.fields({"id","privateKey","challenge"});body.at("privateKey").binary(32);body.at("challenge").binary(32);
@@ -106,10 +116,18 @@ class ImportRequests {
     complete_bank(r);IdentityKey proposed(body.at("privateKey").binary(32),rng);
     require(proposed.public_key()==r.at("publicKey").binary(33),"wrong-key");
     Review review{op,"","",{{"operation",op},{"requestId",r.at("id").string()},{"objectHash",to_hex(r.at("publicKey").binary(33))},
-      {"contentHash",to_hex(r.at("policyHash").binary(32))},{"risk",i18n::T(i18n::Str::kImportWarning)}}};review.requires_pin=true;
+      {"contentHash",to_hex(r.at("policyHash").binary(32))},{"risk",i18n::T(i18n::Str::kImportWarning)}}};review.requires_pin=true;review.creates_pin=true;
+    // 同 Key 迁移必须展示随 Key 导入的实际授权，不能只让用户核对账本哈希。
+    {auto bank=complete_bank(r);auto settings=decode(bank,65536);
+      if(settings.at("version").integer()==4)for(const auto& c:settings.at("signing").array){review.facts.push_back({"channelId",c.at("id").string()});review.facts.push_back({"mode",c.at("mode").string()});}
+      for(const auto& c:settings.at("channels").array){review.facts.push_back({"channelId",c.at("id").string()});review.facts.push_back({"singleLimit",std::to_string(c.at("singleLimit").integer())});if(c.at("kind").string()=="app")review.facts.push_back({"defaultSessionLimit",std::to_string(c.at("defaultSessionLimit").integer())});}
+    }
     return {profile,body,std::make_unique<Action>(ui,review,[this,r,body]{
-      auto bank=complete_bank(r);keys->install(r,bank,body.at("privateKey").binary(32),rng);
-      journal.advance(r.at("id").string(),"device-committed");return proof(body);
+      auto bank=complete_bank(r);
+      // Final local confirmation begins the only durable import transaction.
+      MigrationStore durable;MigrationJournal committed(durable);committed.begin(r);
+      write_persistent_stage(r,bank);keys->install(r,bank,body.at("privateKey").binary(32),rng);
+      journal.advance(r.at("id").string(),"device-committed");committed.advance(r.at("id").string(),"device-committed");return proof(body);
     }),false};
   }
 };

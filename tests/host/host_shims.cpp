@@ -50,7 +50,7 @@ void Log::Write(LogLevel, const char*, const char*, ...) {}
 uint32_t Log::dropped_ = 0;
 
 namespace secp {
-// 主机上不覆盖签名路径：真实实现由固件自检与 scripts/check_test_vectors.py 负责。
+// 主机上不覆盖签名路径：真实实现由固件自检与 tools/test-vectors/main.py 负责。
 bool SignDer(const uint8_t* priv, const uint8_t digest[32], uint8_t* out, size_t* outLen) {
   (void)priv;
   (void)digest;

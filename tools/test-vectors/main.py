@@ -9,7 +9,7 @@
   - RIPEMD-160：ISO/IEC 10118-3 官方向量
   - 本地秘密 v3：keymaster.cc active-key-hkdf-v1（WebCrypto AES-GCM 等价）
 
-用法：python3 scripts/check_test_vectors.py
+用法：python3 tools/test-vectors/main.py
 """
 import binascii
 import hashlib
@@ -19,7 +19,7 @@ import re
 import sys
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 fails = []
 
 
@@ -179,7 +179,7 @@ def shutil_which_ripemd_header():
 # ── AES-GCM ────────────────────────────────────────────────────────────
 # 这里只做一件事：**执行** src/crypto/aead.cpp 自己的 SelfTest。
 # 逐字节对照成熟实现（mbedtls GCM）的是 tests/host/test_aead.cpp，
-# 由 scripts/run_host_tests.sh 调用。
+# 由 tools/host-tests/main.sh 调用。
 #
 # 原来的写法是 grep 源码里的期望值数组，既没执行算法，用的还是 NIST 的
 # AES-128 用例去对 AES-256 的输出 —— 于是"通过"毫无信息量。
@@ -273,6 +273,6 @@ if fails:
 print()
 print("说明：上面 AES-GCM、RIPEMD-160、X25519 三节都是**执行固件代码**后")
 print("      与权威/参照实现比对的结果。逐项向量（RFC 5869 / RFC 7748 / 与")
-print("      mbedtls 逐字节对照）见 tests/host/ 与 scripts/run_host_tests.sh。")
+print("      mbedtls 逐字节对照）见 tests/host/ 与 tools/host-tests/main.sh。")
 print("      local-secret 一节目前仍只比对源码常量 —— 它需要 Keymaster 真实")
 print("      密文才能真正验证兼容，这一项尚未完成。")

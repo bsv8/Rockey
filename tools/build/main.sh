@@ -13,13 +13,13 @@
 # 在刷机之前就暴露出来，而不是等到构建或联调阶段。
 #
 # 用法：
-#   scripts/build.sh                      # 构建默认环境（zh-Hans 发布）
-#   scripts/build.sh --all                # 构建全部语言 × 档位
-#   scripts/build.sh --check-only         # 只跑第 0 步门禁
-#   scripts/build.sh --upload m5stack-core-zh-hans
+#   tools/build/main.sh                      # 构建默认环境（zh-Hans 发布）
+#   tools/build/main.sh --all                # 构建全部语言 × 档位
+#   tools/build/main.sh --check-only         # 只跑第 0 步门禁
+#   tools/build/main.sh --upload m5stack-core-zh-hans
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 CHECK_ONLY=0
@@ -27,8 +27,8 @@ CHECK_ONLY=0
 # ── 第 0 步：主机侧门禁（无需 ESP32 工具链） ──────────────────────────
 run_host_gate() {
   echo "=== 主机侧门禁 ==="
-  "$ROOT/scripts/run_host_tests.sh"
-  python3 scripts/check_wire_encoding.py
+  "$ROOT/tools/host-tests/main.sh"
+  python3 tools/wire-encoding/main.py
   echo
 }
 
@@ -103,7 +103,7 @@ TARGETS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --all) TARGETS=("${ALL_ENVS[@]}") ;;
-    --upload) shift; UPLOAD_ENV="$1" ;;
+    --upload) shift; UPLOAD_ENV="$1"; TARGETS+=("$1") ;;
     --check-only) CHECK_ONLY=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) TARGETS+=("$1") ;;
@@ -179,13 +179,13 @@ for env_name in "${TARGETS[@]}"; do
 - 未编入 CJK 字体；所有英语文案须通过 check_i18n.py。
 BUILTIN_MANIFEST
   else
-    "$FONT_PY" tools/genfont.py \
+    "$FONT_PY" tools/fonts/main.py \
       --lang "$lang" --profile "$profile" --glyph-set "$glyph" \
       --out src/i18n/fonts/rockey_fonts.h \
       --manifest src/i18n/fonts/MANIFEST.md
   fi
 
-  python3 scripts/check_i18n.py --lang "$lang" || exit 1
+  python3 tools/i18n/main.py --lang "$lang" || exit 1
 
   rm -rf ".pio/build/$env_name"
   rm -rf ".pio/libdeps/$env_name"
@@ -206,12 +206,13 @@ BUILTIN_MANIFEST
 
   cp src/i18n/fonts/MANIFEST.md ".pio/build/$env_name/font-MANIFEST.md"
   if env_is_release "$env_name"; then
-    python3 scripts/check_release_build.py ".pio/build/$env_name/firmware.elf" \
+    python3 tools/release-check/main.py ".pio/build/$env_name/firmware.elf" \
       --env "$env_name" --build-id "$ROCKEY_BUILD_ID" || exit 1
     # PlatformIO 可清理前一环境的缓存；发布成果与语言清单不能依赖缓存存活。
     artifact_dir=".pio/releases/$BUILD_ID/$env_name"
     mkdir -p "$artifact_dir"
     cp ".pio/build/$env_name/firmware.elf" ".pio/build/$env_name/firmware.bin" ".pio/build/$env_name/font-MANIFEST.md" "$artifact_dir/"
+    "$FONT_PY" tools/rockey/main.py archive "$BUILD_ID" "$env_name"
   else
     echo "（开发/调试档位：跳过发布扫描）"
   fi
@@ -220,7 +221,14 @@ done
 if [ -n "$UPLOAD_ENV" ]; then
   echo
   echo "=== 刷写 $UPLOAD_ENV ==="
-  pio run -e "$UPLOAD_ENV" -t upload --upload-port "${M5STACK_PORT:-/dev/ttyUSB0}"
+  if ! env_is_release "$UPLOAD_ENV"; then
+    echo "统一维护命令只部署发布固件；开发 E2E 使用隔离测试流程。" >&2
+    exit 1
+  fi
+  firmware_path="$("$FONT_PY" tools/rockey/main.py archive "$BUILD_ID" "$UPLOAD_ENV")"
+  upload_args=()
+  if [ -n "${M5STACK_PORT:-}" ]; then upload_args+=(--port "$M5STACK_PORT"); fi
+  ROCKEY_PYTHON="$FONT_PY" ./rockey flash "$firmware_path" "${upload_args[@]}"
 fi
 
 echo

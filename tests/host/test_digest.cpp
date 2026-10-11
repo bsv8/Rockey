@@ -260,7 +260,7 @@ void TestKeystoreDerivationChain() {
 // 而实际签署的金额仍是原值 —— 屏幕与签署对象不一致。
 //
 // 这里锁住"用 64 位格式化"这个性质；格式串与实参类型不匹配还会被
-// scripts/check_syntax.sh 的 -Wformat 挡住。
+// tools/syntax/main.sh 的 -Wformat 挡住。
 void TestAmountFormatting() {
   Begin("format/amount64");
   const uint64_t kBig = 5000000000ull;  // 超过 UINT32_MAX
@@ -270,7 +270,7 @@ void TestAmountFormatting() {
 
   // 注意：这个缺陷只在 ILP32 平台（ESP32：sizeof(unsigned long) == 4）上出现，
   // 64 位主机上旧的 %lu 写法碰巧是对的，所以这里没法直接复现。
-  // 真正的防线是 scripts/check_syntax.sh 的 -Wformat：%lu 配 uint64 实参会报错。
+  // 真正的防线是 tools/syntax/main.sh 的 -Wformat：%lu 配 uint64 实参会报错。
   // 本测试负责锁住"新写法在两种位宽下都正确"。
   Check(sizeof(unsigned long) == 4 || sizeof(unsigned long) == 8, "host word size is known");
 

@@ -8,7 +8,7 @@ import re
 import sys
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 STRINGS = os.path.join(ROOT, "src", "i18n", "strings.h")
 LANGS = ["en", "zh-Hans", "zh-Hant", "zh-Hk", "ja"]
 

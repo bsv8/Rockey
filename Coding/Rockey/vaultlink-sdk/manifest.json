@@ -2,7 +2,7 @@
   "package": "@vaultlink/sdk",
   "version": "0.2.0-draft.1",
   "wireVersion": 2,
-  "sourceCommit": "e15c9d061dd3d379167941590b67a4e8439d49f3",
+  "sourceCommit": "5e91963068a90e8d0d216ca2b9aba318f5b4c869",
   "files": {
     "LICENSE": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
     "device/core.hpp": "89c20bbf2ddfb4de6cc2a215fb80ce15b9752e9995edff8036c788d2e7c3e8c1",
@@ -11,11 +11,11 @@
     "device/sdk/bsv.hpp": "2633fb0e1cc152bc3703b75937a759271193099525796c93e50f9a951883f09d",
     "device/sdk/cbor.hpp": "dbc31845a745937976972ce35e4b2be8bae19b01272f5f2be2c1ce423fefcff3",
     "device/sdk/crypto.hpp": "a7c273a67ebe9a3ded3d84f7e2c8767bbdc75d59be4d470a56a7ecc815138441",
-    "device/sdk/endpoint.hpp": "1cfc6cbc464403c12c25131bd482af0ae6fada7fb779bf9fbac2c4ab87a38323",
+    "device/sdk/endpoint.hpp": "b7bf8f43e19107c20f786a3f301d1432ae2c83d764ca11bce42014c7f5c6e4ee",
     "device/sdk/feepool.hpp": "1366b4f7843d75478436b9ef6b482b15cedef085fec46ba147300fdedbf70144",
     "device/sdk/fragments.hpp": "6b743e1f0db7e8db4194da9836e7d64e7e119ff27e609389547909955be14048",
     "device/sdk/local_secret.hpp": "ff44734c3b3fcbd686f542655be75c357426d722347f749dcb05c3dd0ecccee1",
-    "device/sdk/policy.hpp": "e9f5dd53a3c1ec8726db3c01d3cc4d7bdeba59b0a1f180ef0c422b93f681765c",
+    "device/sdk/policy.hpp": "d0da9cf7a605d3fdb64a76db358c062ac5975f7c3d5127e6312b90a798ff1636",
     "device/sdk/standard.hpp": "2010efa193e0b4dc9e8e9f585eb3e3cf645c4c67a87d31dfca78a6965a5d30df",
     "device/sdk/connect_envelope.hpp": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb",
     "device/jcs_test.cpp": "234ebf380c298eab4dba4ec5ab784799a57c2d84fcaf9cd37fa952433f1ad7ae",
@@ -49,25 +49,155 @@
     "device/migration_journal_test.cpp": "fe29caeffe3cbeec9764e3fff34e013e3cfe420d40d5282c8ca26f02fcff4d5d",
     "device/sdk/migration.hpp": "c9b7d1d29cbaa95232bdddbf5ddd9bf3d356afbed4408006214e045b21046295",
     "device/sdk/migration_import.hpp": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a",
-    "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a"
+    "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a",
+    "device/cbor_memory_test.cpp": "ac466902b1c6b497759491454fb70992e8523c069efe800e12fafd2c02fd3706",
+    "device/sdk/signing_channel.hpp": "fe4185cf30d0a5edb6c89cd40f5fdbed380bf463dc4af7d1915fa293ac894710"
   },
   "sourceOverrides": {
-    "reason": "\u7edf\u4e00\u63e1\u624b\u9636\u6bb5 60 \u79d2\u7b49\u5f85\uff0csourceCommit \u4e4b\u540e\u7684\u5de5\u4f5c\u533a\u4fee\u6b63",
-    "files": {
-      "device/sdk/endpoint.hpp": "1cfc6cbc464403c12c25131bd482af0ae6fada7fb779bf9fbac2c4ab87a38323"
-    }
-  },
-  "sourceOverlay": {
-    "reason": "NetworkIdentity: immutable BSV network and signed Connect v2 envelope",
+    "reason": "渠道授权及空钱包连接状态施工工作区增量；消费副本由 files SHA256 固定，未宣称已提交",
     "sourceDirectory": "/Users/david/Workspaces/BSV8_VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol",
+    "snapshotSha256": "c5e58fd04297706d8516ab436d4a707dd2156eb8b2dd2fa4e7481c62e3956896",
     "files": {
-      "device/sdk/connect_envelope.hpp": {
-        "baseSha256": "af1ea5532105f8902d902a70c5915fa25743b0f41e8a6496d025a90d979c3726",
-        "sha256": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb"
+      "device/core.hpp": {
+        "sha256": "89c20bbf2ddfb4de6cc2a215fb80ce15b9752e9995edff8036c788d2e7c3e8c1"
+      },
+      "device/core_test.cpp": {
+        "sha256": "6c41fda7f9a287395ccb120c3e91e4c47eef84ce9f705913959ec27b626fba8a"
+      },
+      "device/sdk/arduino_serial.hpp": {
+        "sha256": "0b1466f1b2856a7b8d5727a8672a96ce4cce7a6e5710e5d61e201b1df3c4855a"
+      },
+      "device/sdk/bsv.hpp": {
+        "sha256": "2633fb0e1cc152bc3703b75937a759271193099525796c93e50f9a951883f09d"
+      },
+      "device/sdk/cbor.hpp": {
+        "sha256": "dbc31845a745937976972ce35e4b2be8bae19b01272f5f2be2c1ce423fefcff3"
+      },
+      "device/sdk/crypto.hpp": {
+        "sha256": "a7c273a67ebe9a3ded3d84f7e2c8767bbdc75d59be4d470a56a7ecc815138441"
+      },
+      "device/sdk/endpoint.hpp": {
+        "sha256": "b7bf8f43e19107c20f786a3f301d1432ae2c83d764ca11bce42014c7f5c6e4ee"
+      },
+      "device/sdk/feepool.hpp": {
+        "sha256": "1366b4f7843d75478436b9ef6b482b15cedef085fec46ba147300fdedbf70144"
+      },
+      "device/sdk/fragments.hpp": {
+        "sha256": "6b743e1f0db7e8db4194da9836e7d64e7e119ff27e609389547909955be14048"
+      },
+      "device/sdk/local_secret.hpp": {
+        "sha256": "ff44734c3b3fcbd686f542655be75c357426d722347f749dcb05c3dd0ecccee1"
       },
       "device/sdk/policy.hpp": {
-        "baseSha256": "5d0f0758e698e27a404ce4fe823fbfe2e879ceb9edd36d8a2224679e79308c28",
-        "sha256": "e9f5dd53a3c1ec8726db3c01d3cc4d7bdeba59b0a1f180ef0c422b93f681765c"
+        "sha256": "d0da9cf7a605d3fdb64a76db358c062ac5975f7c3d5127e6312b90a798ff1636"
+      },
+      "device/sdk/standard.hpp": {
+        "sha256": "2010efa193e0b4dc9e8e9f585eb3e3cf645c4c67a87d31dfca78a6965a5d30df"
+      },
+      "device/sdk/connect_envelope.hpp": {
+        "sha256": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb"
+      },
+      "device/jcs_test.cpp": {
+        "sha256": "234ebf380c298eab4dba4ec5ab784799a57c2d84fcaf9cd37fa952433f1ad7ae"
+      },
+      "device/sdk/channel.hpp": {
+        "sha256": "6ab5316ad21d34e6a7e0c4225384375422c92145ef308109f1d34e4846779dd9"
+      },
+      "device/sdk/jcs.hpp": {
+        "sha256": "bbbc6e4988b0ff00eaf2300de0de9594ccec852cc69d1c512a84e85db54cf021"
+      },
+      "device/third_party/double-conversion/string-to-double.h": {
+        "sha256": "1976310fdd04e3bc350c5f8f4b443ba0287abb4004b318f048ac41611278e4c9"
+      },
+      "device/third_party/double-conversion/utils.h": {
+        "sha256": "ab745c4b74fdd27d967d8026d082bff3ef59ca2ca581c163dcf266bebd413795"
+      },
+      "device/third_party/double-conversion/bignum.cc": {
+        "sha256": "cc33c3775d66d138aa49ea5a18e73ad6766ecca17009225811c33cea64bcd11b"
+      },
+      "device/third_party/double-conversion/fixed-dtoa.h": {
+        "sha256": "5c22077d3d333998b87c578aa1a015503d162895e20e5f2ee92721c834748ee1"
+      },
+      "device/third_party/double-conversion/string-to-double.cc": {
+        "sha256": "9aafd7e77a23164ee94903cfd16bd1e84344a5d7a18b4ee430e35e76568b108d"
+      },
+      "device/third_party/double-conversion/LICENSE": {
+        "sha256": "4af93c12062c58058378de2397dc1c92bbff9ddfb1d583a01c84127557ce97ca"
+      },
+      "device/third_party/double-conversion/bignum-dtoa.h": {
+        "sha256": "d11517ebb69107c515c5b45d820e1a2ff665ac64182f62fdd25bac804acf1d1f"
+      },
+      "device/third_party/double-conversion/fixed-dtoa.cc": {
+        "sha256": "6cbef46bd0f6a482f4c79e34d14e49b448094d85bcefc25177957d84b62b2144"
+      },
+      "device/third_party/double-conversion/double-to-string.h": {
+        "sha256": "7e2a5e08fd57f476e789d05b789ac0376ebbb78172ebcf68db493dc1e1e5e4ef"
+      },
+      "device/third_party/double-conversion/strtod.h": {
+        "sha256": "08c3a8f9852b6e3399b694ead7511e0ecadc96a6a61431fc1f9df003f2ff41d8"
+      },
+      "device/third_party/double-conversion/diy-fp.h": {
+        "sha256": "f8f5d66be5684ac547f68b997d41fdc57e8dc2ca1ef2ef2e3b10c6a76c9c5b75"
+      },
+      "device/third_party/double-conversion/strtod.cc": {
+        "sha256": "923f15ce6bff38b9aaa1f3bced157c468978ac9443fbb781f0826daeae5cd4ee"
+      },
+      "device/third_party/double-conversion/cached-powers.h": {
+        "sha256": "1da91324ffd4200b3cb41d1f0707277175cdd28fcbffa13104e14df431f00744"
+      },
+      "device/third_party/double-conversion/double-conversion.h": {
+        "sha256": "2754e5e7ef1a158d00f529da03dcf943dd239ccc70e798a594f22e13e8dd0f94"
+      },
+      "device/third_party/double-conversion/fast-dtoa.cc": {
+        "sha256": "c2042b7bdd218435bcb4881a86a033bbd5dddbb6bd386a3a099247ca67882440"
+      },
+      "device/third_party/double-conversion/manifest.json": {
+        "sha256": "de679dd1239306d307fee81b6459bfafca55552bfce67bef229850f25cdf5a9b"
+      },
+      "device/third_party/double-conversion/double-to-string.cc": {
+        "sha256": "a74266a3b5b69e5c563023d6d01d54e0b09eb57656257c2dadee04648a8b931d"
+      },
+      "device/third_party/double-conversion/cached-powers.cc": {
+        "sha256": "f0cabcc74f54ca33072671cc6c2819e39e8cd9b55db508946f2bd5acc1b48367"
+      },
+      "device/third_party/double-conversion/ieee.h": {
+        "sha256": "bc9a4adae492f692e19db9c279eac52d4933ddf872aff43056bceee42d65a8f5"
+      },
+      "device/third_party/double-conversion/bignum.h": {
+        "sha256": "6b63faea13f36f6026b56855aa8d28329ba1a91c564b9abc94b21608ca42cbfb"
+      },
+      "device/third_party/double-conversion/fast-dtoa.h": {
+        "sha256": "523d778935995dea5d21e59f55629ba40eaf68dedfe99e82b71efd4ae75f4e40"
+      },
+      "device/third_party/double-conversion/bignum-dtoa.cc": {
+        "sha256": "85a803ff5eaea5acc840182ab03dc1205b77519cb61d6615682314eb8aa90914"
+      },
+      "device/sdk/bitfs_wire.hpp": {
+        "sha256": "116342ebcc9829a028bad4d6027773e96745f1be124d543bf33f373bb33e5e67"
+      },
+      "device/sdk/network_identity.hpp": {
+        "sha256": "6cc5ae8c022958ba0dd1e60af3af105978d15ce832de2d7fd024c842d7be2e60"
+      },
+      "device/policy_transfer_test.cpp": {
+        "sha256": "d0ec18fd4fa22cbce6de31496fa2aa15c817ad18e67b6217c1ae7290364e521f"
+      },
+      "device/migration_journal_test.cpp": {
+        "sha256": "fe29caeffe3cbeec9764e3fff34e013e3cfe420d40d5282c8ca26f02fcff4d5d"
+      },
+      "device/sdk/migration.hpp": {
+        "sha256": "c9b7d1d29cbaa95232bdddbf5ddd9bf3d356afbed4408006214e045b21046295"
+      },
+      "device/sdk/migration_import.hpp": {
+        "sha256": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a"
+      },
+      "device/policy_archive_test.cpp": {
+        "sha256": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a"
+      },
+      "device/cbor_memory_test.cpp": {
+        "sha256": "ac466902b1c6b497759491454fb70992e8523c069efe800e12fafd2c02fd3706"
+      },
+      "device/sdk/signing_channel.hpp": {
+        "sha256": "fe4185cf30d0a5edb6c89cd40f5fdbed380bf463dc4af7d1915fa293ac894710"
       }
     }
   }

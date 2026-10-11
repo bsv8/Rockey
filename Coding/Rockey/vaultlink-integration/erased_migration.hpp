@@ -63,15 +63,17 @@ class ErasedMigrationRuntime {
  public:
   ErasedMigrationRuntime(vaultlink::ByteTransport& transport,vaultlink::Rng rng,uint32_t run,ApprovalUI& approval,
     std::function<bool(const std::string&)> pairing,std::function<int()> pairPoll,std::function<void()> clear)
-    :journal(store),identity(ephemeral(rng)),ui(approval){
+    :journal(store),ui(approval){
     using namespace vaultlink;
     require(!keystore::KeyStore::HasKey(),"migration-conflict");auto record=journal.status();
     require(record.kind!=Value::Null&&record.at("direction").string()=="to-software"
       &&(record.at("phase").string()=="erasing"||record.at("phase").string()=="erased"||record.at("phase").string()=="complete"),"migration-recovery-unavailable");
+    identity=ephemeral(rng);
     endpoint=std::make_unique<Endpoint>(transport,*identity,rng,run,
       [this](const std::string& op,const Value& b,const Bytes& h){return prepare(op,b,h);},std::move(clear),std::move(pairing));
     endpoint->set_pairing_poll(std::move(pairPoll));endpoint->set_capabilities({Value(uint64_t(0x231))});
   }
+  bool connected()const{return endpoint && endpoint->connected();}
   void poll(){vaultlink::require(bool(endpoint),"disconnected");endpoint->poll();}
   ~ErasedMigrationRuntime(){endpoint.reset();identity->lock();}
 };

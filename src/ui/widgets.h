@@ -19,10 +19,11 @@ namespace ui {
 
 // ── 页头 / 页脚 ────────────────────────────────────────────────────
 void DrawHeader(const char* title, const char* rightHint);
+void SetBrowserConnected(bool connected);
 void DrawFooter(const char* leftLabel, const char* midLabel, const char* rightLabel);
 
 // ── 菜单 ───────────────────────────────────────────────────────────
-constexpr uint8_t kMaxMenuItems = 10;
+constexpr uint8_t kMaxMenuItems = 11;
 
 struct MenuView {
   const char* items[kMaxMenuItems];

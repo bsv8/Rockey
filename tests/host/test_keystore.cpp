@@ -11,7 +11,7 @@
 //
 // 注意：这里的曲线运算用 mbedTLS 3.6 + 确定性 RNG（见 shim_env.cpp 注释），
 // 验证的是 keystore 的**状态机与提交逻辑**；真机上的密码学仍由固件 SelfTest
-// 与 scripts/check_test_vectors.py 覆盖，两者不能互相替代。
+// 与 tools/test-vectors/main.py 覆盖，两者不能互相替代。
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
