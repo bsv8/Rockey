@@ -20,6 +20,7 @@ struct Review {
 // Only firmware button handling may produce Approval. There is no USB field
 // that supplies a PIN verification or an approve/deny boolean.
 struct ApprovalUI {
+  virtual void automatically_approved(const Review&) {}
   virtual void begin(const Review&)=0;
   virtual Approval decision()=0;
   virtual void clear()=0;

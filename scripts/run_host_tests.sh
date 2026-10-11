@@ -62,6 +62,16 @@ echo "=== 编译 CBOR / 帧 / CRC32 向量测试 ==="
 "$BIN/proto" || FAILED=1
 echo
 
+"$CXX" -std=gnu++17 -Wall -Wextra $SAN -Isrc \
+  Coding/Rockey/device-ui/sound_test.cpp -o "$BIN/sound" || exit 1
+"$BIN/sound" || FAILED=1
+echo
+
+# Compile the real display/font/text sources and compare actual framebuffer
+# pixels with the pinned source font; font coverage alone cannot catch rendering.
+"${ROCKEY_PYTHON:-python3}" Coding/Rockey/font-render-test/check.py || FAILED=1
+echo
+
 if [ -n "$MB" ]; then
   export ROCKEY_MBEDTLS_INC="$MB/include"
   export ROCKEY_MBEDTLS_LIB="$MB/lib"
@@ -96,6 +106,25 @@ if [ -n "$MB" ]; then
     src/store/keystore.cpp src/store/vault_fs.cpp src/store/crc32.cpp src/crypto/digest.cpp \
     src/crypto/aead.cpp src/crypto/rand.cpp src/crypto/secure.cpp tests/host/shim_esp_aes.cpp \
     $MBFLAGS
+
+  run "power-lifecycle" -- Coding/Rockey/vaultlink-integration/tests/power_lifecycle.cpp \
+    src/i18n/i18n.cpp \
+    tests/host/shim_env.cpp src/ops/local_secret.cpp src/store/keystore.cpp src/store/vault_fs.cpp \
+    src/store/crc32.cpp src/crypto/digest.cpp src/crypto/aead.cpp src/crypto/rand.cpp \
+    src/crypto/secure.cpp tests/host/shim_esp_aes.cpp \
+    Coding/Rockey/vaultlink-sdk/device/third_party/double-conversion/*.cc $MBFLAGS
+
+  run "navigation" -- -DROCKEY_HOST_UI_TEST=1 -DROCKEY_FONT_TABLE=1 \
+    Coding/Rockey/vaultlink-integration/tests/navigation_native.cpp \
+    tests/host/shim_env.cpp tests/host/shim_esp_aes.cpp \
+    src/core/app.cpp src/core/log.cpp src/board/board.cpp src/board/buttons.cpp src/board/display.cpp \
+    src/ui/font.cpp src/ui/text.cpp src/ui/widgets.cpp src/i18n/i18n.cpp \
+    src/ops/dispatch.cpp src/ops/review.cpp src/ops/tx.cpp src/ops/local_secret.cpp \
+    src/proto/link.cpp src/proto/frame.cpp src/proto/cbor.cpp src/policy/policy.cpp \
+    src/store/keystore.cpp src/store/vault_fs.cpp src/store/crc32.cpp \
+    src/crypto/digest.cpp src/crypto/aead.cpp src/crypto/rand.cpp src/crypto/secure.cpp \
+    src/crypto/x25519.cpp src/crypto/ripemd160.cpp \
+    Coding/Rockey/vaultlink-sdk/device/third_party/double-conversion/*.cc $MBFLAGS
 
   run "digest" -- tests/host/test_digest.cpp src/crypto/digest.cpp src/crypto/secure.cpp $MBFLAGS
 

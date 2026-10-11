@@ -1,4 +1,5 @@
 #pragma once
+#include "../device-ui/authorization_sound.hpp"
 #include "rockey_vaultlink.hpp"
 #include "erased_migration.hpp"
 #include "provision_runtime.hpp"
@@ -47,6 +48,7 @@ class Controller final : public ApprovalUI {
   bool visible = false, pairing = false, redraw = false, raise = false, remember = false;
   int pair_answer = 0;
   uint64_t raised = 0;
+  int drawn_percent = -1;
   ui::HoldConfirm hold;
   PinReauthentication pin;
   bool entering_pin=false;
@@ -185,11 +187,20 @@ class Controller final : public ApprovalUI {
     bool read = lines.size() <= 6 || furthest + 6 >= lines.size();
     hold.Update(buttons, ::millis(), read);
     if (hold.Fired()) {
-      if (pairing) { pair_answer = 1; visible = false; }
-      else { answer = {remember ? Approval::AllowSession : raise ? Approval::Raise : Approval::Once, raised,pin.verified()}; }
+      if (pairing) {
+        pair_answer = 1; visible = false; hold.Reset(); buttons.ArmReleaseGate();
+        // 确认后等待 Endpoint 发送 PAIR_OK，不能重画已经关闭的核对页。
+        return;
+      }
+      else {
+        answer = {remember ? Approval::AllowSession : raise ? Approval::Raise : Approval::Once, raised,pin.verified()};
+        hold.Reset(); buttons.ArmReleaseGate();
+      }
       redraw = true;
     }
-    if (redraw || hold.Armed()) draw();
+    if (redraw) draw();
+    const auto percent=hold.Percent(::millis());
+    if(drawn_percent!=percent)draw_progress(percent);
   }
   bool button(Btn b, BtnEvent event) {
     if (!visible) return false;
@@ -224,10 +235,12 @@ class Controller final : public ApprovalUI {
         if (b == Btn::kA) raised = raised > step && raised - step >= review.minimum_limit ? raised - step : review.minimum_limit;
         redraw = true; return true;
       }
+      const auto before=position;
       if (b == Btn::kA && position) --position;
       if (b == Btn::kC && position + 6 < lines.size()) ++position;
       if (b==Btn::kB && event==BtnEvent::kShortPress && review.can_remember && furthest+6>=lines.size()) {
         remember=!remember;hold.Reset();buttons.ArmReleaseGate();
+        redraw=true;
       }
       // Only a deliberate short B selects an increased limit. Hold-repeat
       // belongs to scrolling/amount adjustment; it must not turn confirmation
@@ -237,12 +250,14 @@ class Controller final : public ApprovalUI {
         // 最小增额到本次后累计，之后可继续通过同一批准入口提高。
         raised = raise ? review.minimum_limit : 0;
         hold.Reset(); buttons.ArmReleaseGate();
+        redraw=true;
       }
-      furthest = std::max(furthest, position); redraw = true;
+      furthest = std::max(furthest, position); if(before!=position)redraw = true;
     }
     return true;
   }
   void begin(const Review& r) override {
+    sound::Notify(true,::millis());
 #if defined(ROCKEY_DEV_BUTTON_API)
     ++testReviews;
 #endif
@@ -264,10 +279,11 @@ class Controller final : public ApprovalUI {
       else if(fact.first=="poolFamily")value=value=="connect"?"Connect":"BitFS";
       add(fact.first == "pair" ? i18n::T(i18n::Str::kPairHint) : label(fact.first), value);
     }
-    visible = redraw = true; hold.Reset(); buttons.ArmReleaseGate();
+    visible = redraw = true; drawn_percent=-1; hold.Reset(); buttons.ArmReleaseGate();
   }
   Approval decision() override { return answer; }
   void clear() override { visible = false; pairing = false; lines.clear(); hold.Reset(); answer = {};pin.clear();entering_pin=false; }
+  void automatically_approved(const Review&) override { sound::Notify(false,::millis()); }
   void draw() {
     Display::FillScreen(color::kBlack);
     if(entering_pin) {
@@ -292,9 +308,14 @@ class Controller final : public ApprovalUI {
       const char *mode=i18n::T(remember?i18n::Str::kVlpDecisionSession:i18n::Str::kVlpDecisionOnce);
       Display::DrawText(FontRole::kSmall,6,176,mode,strlen(mode),color::kYellow,color::kBlack);
     }
-    hold.Draw(Rect{6, 198, 308, 10}, ::millis(), true);
     ui::DrawFooter(i18n::T(i18n::Str::kVlpDenyScroll), i18n::T(review.can_remember?i18n::Str::kVlpDecisionToggle:i18n::Str::kBtnHoldConfirm), i18n::T(i18n::Str::kBtnScrollNext));
+    // 页脚已显示长按提示；进度放在其上方，不能被页脚覆盖。
+    draw_progress(hold.Percent(::millis()));
     redraw = false;
+  }
+  void draw_progress(uint8_t percent) {
+    Display::DrawProgress(Rect{6,198,308,8},percent,color::kYellow,color::kBlack);
+    drawn_percent=percent;
   }
 };
 } // namespace rockey::vlp

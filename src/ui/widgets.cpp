@@ -49,15 +49,6 @@ void DrawFooter(const char* leftLabel, const char* midLabel, const char* rightLa
   }
 }
 
-void DrawFooterLockHint(bool showLock) {
-  if (showLock) {
-    DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kCancel),
-               i18n::T(i18n::Str::kBack));
-  } else {
-    DrawFooter(nullptr, nullptr, nullptr);
-  }
-}
-
 void DrawMenu(const MenuView& m, bool visible) {
   Rect r = ContentRect();
   int lh = FontLineHeight(FontRole::kSmall);
@@ -189,19 +180,6 @@ void DrawSummary(const ops::ReviewDoc& doc, uint8_t scrollLine, uint8_t visibleL
     y += lh + 1;
     shown++;
   }
-}
-
-void DrawBatteryIndicator() {
-  uint8_t pct = Board::BatteryPercent();
-  Rect r{Board::kScreenW - 30, 4, 24, 12};
-  Display::Frame(r, color::kGray);
-  Display::Fill(Rect{static_cast<int16_t>(r.x + r.w), static_cast<int16_t>(r.y + 4), 2, 4},
-                color::kGray);
-  int w = static_cast<int>((r.w - 4) * pct / 100);
-  uint16_t c = pct > 20 ? color::kGreen : color::kRed;
-  Display::Fill(Rect{static_cast<int16_t>(r.x + 2), static_cast<int16_t>(r.y + 2),
-                     static_cast<int16_t>(w), static_cast<int16_t>(r.h - 4)},
-                c);
 }
 
 // ── Reader ─────────────────────────────────────────────────────────

@@ -115,10 +115,12 @@ File LittleFSClass::open(const char* path, const char* mode) {
 
 // ── 日志 ────────────────────────────────────────────────────────────
 namespace rockey {
+#if !defined(ROCKEY_HOST_UI_TEST)
 void Log::Init() {}
 void Log::Write(LogLevel, const char*, const char*, ...) {}
 bool Log::Enabled(LogLevel) { return false; }
 uint32_t Log::dropped_ = 0;
+#endif
 }  // namespace rockey
 
 // ── secp256k1：真实曲线运算（mbedTLS 3.6 需要非空 RNG） ─────────────

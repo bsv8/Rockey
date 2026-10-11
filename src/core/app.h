@@ -49,6 +49,10 @@ class App {
   bool SelfTest();
 
  private:
+#if defined(ROCKEY_HOST_UI_TEST)
+  // 宿主界面回归访问实际导航器；正式固件不编译该入口。
+  friend struct NavigationProbe;
+#endif
 #if defined(ROCKEY_DEV_BUTTON_API)
   // 只在隔离测试固件链接，不能变成正常钱包 RPC。
   std::vector<uint8_t> DevTestControl(const std::vector<uint8_t>& command);
@@ -96,7 +100,6 @@ class App {
 
   void OnEnvelope(const proto::Envelope& env);
   void OnCancelRequest(uint32_t requestId);
-  void OnLinkIdle();
   void SendStateEvent(proto::DeviceState ds);
   void ClearQueues();
   void RecordOutcome(uint32_t requestId, ops::ErrorCode code);
@@ -134,6 +137,9 @@ class App {
   char pin_[ROCKEY_PIN_MAX_DIGITS + 1] = {0};
   uint8_t pinLen_ = 0;
   uint8_t pinDigit_ = 0;
+  bool pinRowDrawn_ = false;
+  uint8_t drawnPinLen_ = 0;
+  uint8_t drawnPinDigit_ = 0;
   char newPin_[ROCKEY_PIN_MAX_DIGITS + 1] = {0};
   uint8_t newPinLen_ = 0;
   bool changingPin_ = false;

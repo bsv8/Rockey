@@ -18,11 +18,11 @@ namespace rockey {
 // 单个字形描述；按码位升序排列，查找用二分。
 struct TableGlyph {
   uint32_t cp;        // 码位
-  uint32_t bitOffset; // 在 bitmap 中的位偏移（行内 MSB 在左，行宽补齐到字节）
+  uint32_t bitOffset; // 在 bitmap 中的位偏移；行连续 MSB 在左，每个字形尾补齐字节
   uint16_t bitLen;
   uint8_t xAdvance;   // 前进宽度（含左右边距）
   int8_t xOffset;     // 字形左边界相对光标
-  uint8_t yOffset;    // 字形顶相对基线上移
+  int8_t yOffset;     // 字形顶相对基线上移；负数表示低于基线（例如下划线）
   uint8_t width;      // 位图列数
   uint8_t height;     // 位图行数（= yOffset + descender）
 };

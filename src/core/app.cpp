@@ -21,6 +21,7 @@
 #include "store/keystore.h"
 #include "store/vault_fs.h"
 #include "../../Coding/Rockey/vaultlink-integration/controller.hpp"
+#include "../../Coding/Rockey/device-ui/presentation.hpp"
 
 namespace rockey {
 App::App() = default;
@@ -72,7 +73,8 @@ bool App::SelfTest() {
 
 void App::Begin() {
   Board::Init();
-  Display::FillScreen(color::kBlack);
+  // 屏幕一就绪就显示标识，让耗时存储与密码学自检有可见反馈。
+  DrawBoot();
   Log::Init();
   const bool storageReady = store::Init() && keystore::KeyStore::Init();
 
@@ -126,6 +128,7 @@ void App::Begin() {
 void App::Go(Screen s) {
   prevScreen_ = screen_;
   screen_ = s;
+  pinRowDrawn_ = false;
   hold_.Reset();
   summaryScroll_ = 0;
   buttons_.ArmReleaseGate();  // 换页先要求松键，避免长按延续误确认
@@ -173,12 +176,15 @@ void App::Loop() {
 #endif
   // 控制帧可能读取 Flash；按键观察必须使用注入完成后的实际时间。
   uint32_t now = millis();
+  sound::Poll(now);
   now_ = now;
   buttons_.Poll(now);
   buttons_.ClearGateIfSatisfied();
 
   bool wasUnlocked = keystore::KeyStore::IsUnlocked();
+  const bool wasReviewing = vaultlink_->active_ui();
   if (!selftestFailed_) vaultlink_->poll();
+  if (wasReviewing && !vaultlink_->active_ui()) { needsRedraw_ = true; pinRowDrawn_ = false; }
   if (wasUnlocked && !keystore::KeyStore::IsUnlocked()) LockNow("VLP disconnected");
 
   // 请求超时与配对超时
@@ -362,7 +368,8 @@ void App::OnButton(Btn btn, BtnEvent ev) {
         }else if(keystore::KeyStore::HasKey()){
           const auto wait=keystore::KeyStore::WaitMsRemaining(millis());
           if(wait){waitTicking_=true;waitSecondsLeft_=static_cast<uint8_t>((wait+999)/1000);Go(Screen::kWaitPin);}
-          else Go(Screen::kLock);
+          // 返回提示页只导航；通电且已解锁的钱包不能被送回 PIN 页。
+          else Go(keystore::KeyStore::IsUnlocked()?Screen::kMenu:Screen::kLock);
         }
       }
       break;
@@ -543,6 +550,13 @@ void App::HandleLockInput(Btn btn, BtnEvent ev) {
 }
 
 void App::SubmitPin() {
+  // TFT 绘制同步完成后才启动耗时的 PIN 派生，不能等下一轮 Loop 才显示。
+  pinRowDrawn_=false;
+  Display::FillScreen(color::kBlack);
+  const char* message=i18n::T(i18n::Str::kLockUnlocking);
+  Display::DrawTextIn({0,0,Board::kScreenW,Board::kScreenH},FontRole::kSmall,
+                      message,strlen(message),color::kWhite,color::kBlack,
+                      TextAlign::kCenter,VAlign::kMiddle);
   keystore::Status st = keystore::KeyStore::Unlock(pin_, pinLen_);
   switch (st) {
     case keystore::Status::kOk: {
@@ -755,13 +769,21 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
           PresentCurrent();
           return;
         case 1: Go(Screen::kGrants); return;
-        case 2: LockNow("user"); return;
-        case 3: Go(Screen::kInfo); return;
-        case 4: Go(Screen::kPubkey); return;
-        case 5: vaultlink_->arm_export(); Go(Screen::kMigrate); return;
-        case 6: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
-        case 7: Go(Screen::kErase); return;
-        case 8: LockNow("change PIN"); changingPin_ = true; return;
+        case 2: Go(Screen::kInfo); return;
+        case 3: Go(Screen::kPubkey); return;
+        case 4: vaultlink_->arm_export(); Go(Screen::kMigrate); return;
+        case 5: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
+        case 6: Go(Screen::kErase); return;
+        case 7: LockNow("change PIN"); changingPin_ = true; return;
+        case 8:
+        case 9: {
+          const bool manual=menuSelected_==9;
+          const bool enabled=!sound::Enabled(manual);
+          if(!sound::SetEnabled(manual,enabled))ShowErrorScreen(ops::ErrorCode::kResultUnknown);
+          // 保存成功再示范对应音色；关闭时只取消该类声音，不播放提示。
+          else if(enabled)sound::Notify(manual,millis());
+          return;
+        }
         default: return;
       }
     } else if (btn == Btn::kB && ev == BtnEvent::kLongPress) {
@@ -941,18 +963,6 @@ void App::OnCancelRequest(uint32_t requestId) {
   // 取消一个设备已经不再跟踪的 requestId：如实回报"结果未知"，
   // 不假装已取消。
   link_.SendError(requestId, static_cast<uint16_t>(ops::ErrorCode::kResultUnknown));
-}
-
-void App::OnLinkIdle() {
-  // 失活或锁定：撤掉全部持续决定、清队列、锁定设备。
-  // 菜单、锁定与取消优先于主机新请求。
-  policy::Policy::ClearAll();
-  keystore::KeyStore::Lock();
-  ClearQueues();
-  if (screen_ != Screen::kLock && screen_ != Screen::kSetPin &&
-      screen_ != Screen::kSetPinConfirm && screen_ != Screen::kWaitPin) {
-    Go(Screen::kLock);
-  }
 }
 
 // 队列与结果缓存的统一清理点。锁定、断线、链路重启、擦除都必须走这里：
@@ -1173,6 +1183,19 @@ void FillContent() { Display::Fill(Content(), color::kBlack); }
 }  // namespace
 
 void App::Draw() {
+  const bool pinPage=screen_==Screen::kLock||screen_==Screen::kSetPin||screen_==Screen::kSetPinConfirm;
+  // 上下轮转只更新当前数字格；进入页面、移动位数或打开菜单才整页绘制。
+  // 授权页覆盖和 Go() 换页必须使缓存失效，避免恢复时只画一个数字。
+  if(pinPage&&pinRowDrawn_&&!pinMenuOpen_&&drawnPinLen_==pinLen_){
+    if(drawnPinDigit_!=pinDigit_){
+      const auto info=keystore::KeyStore::Info_();
+      ui::DrawPinRow(info.pinDigits?info.pinDigits:ROCKEY_PIN_DEFAULT_DIGITS,
+                     pinLen_,pinDigit_,pin_,Board::kContentY+14,true);
+      drawnPinDigit_=pinDigit_;
+    }
+    return;
+  }
+  pinRowDrawn_=false;
   Display::Fill(Rect{0, 0, Board::kScreenW, Board::kScreenH}, color::kBlack);
   switch (screen_) {
     case Screen::kBoot: DrawBoot(); break;
@@ -1201,16 +1224,12 @@ void App::Draw() {
     case Screen::kMigrate: DrawMigrate(); break;
     case Screen::kError: DrawError(); break;
   }
+  pinRowDrawn_=pinPage&&!pinMenuOpen_;
+  drawnPinLen_=pinLen_;drawnPinDigit_=pinDigit_;
 }
 
 void App::DrawBoot() {
-  ui::DrawHeader(i18n::T(i18n::Str::kAppName), LangHint());
-  char buf[64];
-  snprintf(buf, sizeof(buf), "%s %d.%d.%d", i18n::T(i18n::Str::kBootStarting),
-           ROCKEY_FIRMWARE_VERSION_MAJOR, ROCKEY_FIRMWARE_VERSION_MINOR,
-           ROCKEY_FIRMWARE_VERSION_PATCH);
-  ui::DrawNotice(buf, color::kWhite);
-  ui::DrawFooter(nullptr, nullptr, nullptr);
+  ui::DrawBootPoster();
 }
 
 void App::DrawLock() {
@@ -1234,31 +1253,13 @@ void App::DrawLock() {
     m.Add(i18n::T(i18n::Str::kLockCancelInput));
     m.selected = 0;
     ui::DrawMenu(m, false);
-    ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kBtnSelect),
+    ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnSelect),
                    i18n::T(i18n::Str::kBtnHold));
     return;
   }
 
   // 逐位数字轮盘
-  int lh = FontLineHeight(FontRole::kSmall);
-  int y = Board::kContentY + 14;
-  for (uint8_t i = 0; i < digits; ++i) {
-    int x = 16 + i * ((Board::kScreenW - 40) / digits);
-    int w = (Board::kScreenW - 40) / digits - 4;
-    char d[2] = {' ', '\0'};
-    if (i < pinLen_) d[0] = pin_[i];
-    Rect cell{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(w), lh};
-    Display::Fill(cell, color::kBlack);
-    if (i == pinLen_) {
-      Display::Frame(cell, color::kYellow);
-      char cur[8] = {' ', '0', static_cast<char>('0' + pinDigit_), '\0'};
-      Display::DrawTextIn(cell, FontRole::kSmall, cur + 1, 1, color::kYellow, color::kBlack,
-                          TextAlign::kCenter, VAlign::kMiddle);
-    } else {
-      Display::DrawTextIn(cell, FontRole::kSmall, d, 1, color::kWhite, color::kBlack,
-                          TextAlign::kCenter, VAlign::kMiddle);
-    }
-  }
+  ui::DrawPinRow(digits, pinLen_, pinDigit_, pin_, Board::kContentY + 14);
   char msg[96] = {0};
   if (errorCode_ != ops::ErrorCode::kOk) {
     i18n::Format(msg, sizeof(msg), ops::ErrorString(errorCode_));
@@ -1266,9 +1267,9 @@ void App::DrawLock() {
   if (msg[0]) {
     ui::DrawNotice(msg, color::kRed);
   }
-  ui::DrawFooter(i18n::T(i18n::Str::kBtnLess), i18n::T(i18n::Str::kBtnEnter),
+  ui::DrawFooter(i18n::T(i18n::Str::kBtnLess),
+                 i18n::T(pinLen_+1>=digits?i18n::Str::kLockUnlock:i18n::Str::kBtnEnter),
                  i18n::T(i18n::Str::kBtnMore2));
-  ui::DrawBatteryIndicator();
 }
 
 void App::DrawSetPin() {
@@ -1281,25 +1282,7 @@ void App::DrawSetPin() {
                  hint);
   FillContent();
 
-  int lh = FontLineHeight(FontRole::kSmall);
-  int y = Board::kContentY + 14;
-  for (uint8_t i = 0; i < digits; ++i) {
-    int w = (Board::kScreenW - 40) / digits - 4;
-    int x = 16 + i * (w + 4);
-    char d[2] = {' ', '\0'};
-    if (i < pinLen_) d[0] = pin_[i];
-    Rect cell{static_cast<int16_t>(x), static_cast<int16_t>(y), static_cast<int16_t>(w), lh};
-    Display::Fill(cell, color::kBlack);
-    if (i == pinLen_) {
-      Display::Frame(cell, color::kYellow);
-      char cur[2] = {static_cast<char>('0' + pinDigit_), '\0'};
-      Display::DrawTextIn(cell, FontRole::kSmall, cur, 1, color::kYellow, color::kBlack,
-                          TextAlign::kCenter, VAlign::kMiddle);
-    } else {
-      Display::DrawTextIn(cell, FontRole::kSmall, d, 1, color::kWhite, color::kBlack,
-                          TextAlign::kCenter, VAlign::kMiddle);
-    }
-  }
+  ui::DrawPinRow(digits, pinLen_, pinDigit_, pin_, Board::kContentY + 14);
   if (confirm && pinLen_ > 0) {
     // 重复输入时不回显已输入位数，避免侧信道式差异
   }
@@ -1345,19 +1328,19 @@ void App::DrawMenu() {
   menu_.count = 0;
   menu_.Add(queueCount_ ? i18n::T(i18n::Str::kMenuReview) : i18n::T(i18n::Str::kMenuEmpty));
   menu_.Add(i18n::T(i18n::Str::kMenuGrants));
-  menu_.Add(i18n::T(i18n::Str::kMenuLock));
   menu_.Add(i18n::T(i18n::Str::kMenuDeviceInfo));
   menu_.Add(i18n::T(i18n::Str::kMenuKeyDetail));
   menu_.Add(i18n::T(i18n::Str::kMenuExportKey));
   menu_.Add(i18n::T(i18n::Str::kMenuRecoveryBackup));
   menu_.Add(i18n::T(i18n::Str::kMenuErase));
   menu_.Add(i18n::T(i18n::Str::kMenuChangePin));
+  menu_.Add(i18n::T(sound::Enabled(false)?i18n::Str::kSoundAutoOff:i18n::Str::kSoundAutoOn));
+  menu_.Add(i18n::T(sound::Enabled(true)?i18n::Str::kSoundManualOff:i18n::Str::kSoundManualOn));
   if (menuSelected_ >= menu_.count) menuSelected_ = 0;
   menu_.selected = menuSelected_;
   ui::DrawMenu(menu_, false);
   ui::DrawFooter(i18n::T(i18n::Str::kBtnPrev), i18n::T(i18n::Str::kBtnSelect),
                  i18n::T(i18n::Str::kBtnNext));
-  ui::DrawBatteryIndicator();
 }
 
 void App::DrawInfo() {
@@ -1374,8 +1357,6 @@ void App::DrawInfo() {
   snprintf(buf, sizeof(buf), "%u", static_cast<unsigned>(ROCKEY_PROTOCOL_VERSION));
   ui::DrawKeyValue(c, i18n::T(i18n::Str::kInfoProtocol), buf, row++);
   ui::DrawKeyValue(c, i18n::T(i18n::Str::kInfoLanguage), i18n::LangDisplayName(), row++);
-  snprintf(buf, sizeof(buf), "%u%%", Board::BatteryPercent());
-  ui::DrawKeyValue(c, i18n::T(i18n::Str::kInfoBattery), buf, row++);
   snprintf(buf, sizeof(buf), "%lu", static_cast<unsigned long>(Board::FreeHeap()));
   ui::DrawKeyValue(c, i18n::T(i18n::Str::kInfoHeap), buf, row++);
   ui::DrawKeyValue(c, i18n::T(i18n::Str::kSecFlashEnc), i18n::T(i18n::Str::kSecDisabled), row++);
@@ -1385,7 +1366,7 @@ void App::DrawInfo() {
                       i18n::T(i18n::Str::kInfoSecurityNote),
                       strlen(i18n::T(i18n::Str::kInfoSecurityNote)), color::kYellow, color::kBlack,
                       TextAlign::kLeft, VAlign::kTop);
-  ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kBtnBack), nullptr);
+  ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnBack), nullptr);
 }
 
 void App::DrawPubkey() {
@@ -1395,7 +1376,7 @@ void App::DrawPubkey() {
   digest::ToHex(keystore::KeyStore::PublicKey(), 33, hex, sizeof(hex));
   Rect c = Content();
   ui::DrawHexBlock(Rect{c.x, static_cast<int16_t>(c.y + 8), c.w, c.h}, hex, true);
-  ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kBtnBack), nullptr);
+  ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnBack), nullptr);
 }
 
 void App::DrawReader() {
@@ -1528,7 +1509,7 @@ void App::DrawBackup() {
     ui::DrawNotice(e, color::kGray);
     Rect bar{30, static_cast<int16_t>(Board::kContentY + 96), Board::kScreenW - 60, 10};
     Display::DrawProgress(bar, hold_.Percent(now_), color::kYellow, color::kBlack);
-    ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kBtnHoldConfirm),
+    ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnHoldConfirm),
                    i18n::T(i18n::Str::kBtnBack));
     return;
   }
@@ -1557,7 +1538,7 @@ void App::DrawBackup() {
                         VAlign::kTop);
     y += lh;
   }
-  ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), i18n::T(i18n::Str::kBtnNext),
+  ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnNext),
                  i18n::T(i18n::Str::kBtnBack));
 }
 
@@ -1579,7 +1560,7 @@ void App::DrawMigrate() {
   ui::DrawHeader(i18n::T(i18n::Str::kExportTitle), LangHint());
   FillContent();
   ui::DrawNotice(i18n::T(i18n::Str::kExportWarning),color::kYellow);
-  ui::DrawFooter(i18n::T(i18n::Str::kMenuLock),i18n::T(i18n::Str::kBtnBack),nullptr);
+  ui::DrawFooter(nullptr,i18n::T(i18n::Str::kBtnBack),nullptr);
 }
 
 void App::DrawError() {
@@ -1597,7 +1578,7 @@ void App::DrawError() {
   ui::DrawHeader(i18n::T(i18n::Str::kErrTitle), LangHint());
   FillContent();
   ui::DrawNotice(errorText_, color::kRed);
-  ui::DrawFooter(i18n::T(i18n::Str::kMenuLock), nullptr, i18n::T(i18n::Str::kBtnBack));
+  ui::DrawFooter(nullptr, nullptr, i18n::T(i18n::Str::kBtnBack));
 }
 
 }  // namespace rockey

@@ -65,6 +65,10 @@ class Display {
                       uint16_t fg, uint16_t bg, const Rect* clip = nullptr);
   static int MeasureText(FontRole role, const char* s, size_t len);
 
+  // 复用现有字形，只画前景；用于启动标识的整数放大、逐行斜切与投影叠加。
+  static void DrawAsciiArt(FontRole role, int x, int y, const char* text,
+                           uint16_t fg, uint8_t scale, uint8_t shear = 0);
+
   // 行盒内按对齐方式绘制
   static void DrawTextIn(const Rect& box, FontRole role, const char* s, size_t len, uint16_t fg,
                          uint16_t bg, TextAlign hAlign, VAlign vAlign);

@@ -48,6 +48,9 @@ class PaymentService {
     vaultlink::Value execute() override {
       vaultlink::require(!review.requires_pin||(answer.pin_verified&&answer.state==Approval::Once),"physical-confirmation-required");
       auto result = run(answer);
+      // 查询/会话记账不属于授权；仅成功执行的自动授权产生提示，重放缓存
+      // 与失败请求不会再次响。人工提示由实际 UI begin 负责。
+      if(!prompt&&!review.operation.empty())ui.automatically_approved(review);
       cancel();
       return result;
     }
@@ -115,12 +118,16 @@ class PaymentService {
       auto checked=inspect_network_identity(kind,body,key.public_key());require(commitment(profile,body)==hash,"invalid-commitment");
       Review r{op,"","",{{"operation",op},{"protocol",kind},{"objectHash",to_hex(checked.digest)}}};
       if(kind=="peer-record")r.facts.push_back({"sequence",checked.sequence});
-      r.can_remember=true;const std::string scope="libp2p-identity";auto expected=std::make_shared<uint64_t>(grants.revision());auto decision=grants.decision(op,scope);
+      // Noise proves ownership of a fixed, device-reconstructed handshake payload.
+      // Default to automatic approval; explicit denial/revocation still applies.
+      // Peer records remain an independent, manually reviewed permission.
+      const bool noise=kind=="noise";
+      r.can_remember=!noise;const std::string scope="libp2p-identity";auto expected=std::make_shared<uint64_t>(grants.revision());auto decision=grants.decision(op,scope);
       auto record=[this,expected,op,scope](const Approval &answer){
         require(grants.revision()==*expected,"permission-revoked");
         if(answer.state==Approval::AllowSession||answer.state==Approval::DenySession){grants.set(op,scope,answer.state==Approval::AllowSession?ScopeGrants::Allow:ScopeGrants::Deny);*expected=grants.revision();}
       };
-      return {profile,body,std::make_unique<Action>(ui,r,decision==ScopeGrants::Ask,[this,body,kind,expected](const Approval &){
+      return {profile,body,std::make_unique<Action>(ui,r,!noise&&decision==ScopeGrants::Ask,[this,body,kind,expected](const Approval &){
         require(grants.revision()==*expected,"permission-revoked");auto current=inspect_network_identity(kind,body,key.public_key());
         return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
       },record,decision==ScopeGrants::Deny)};

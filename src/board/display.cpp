@@ -1,6 +1,7 @@
 #include "board/display.h"
 
 #include <TFT_eSPI.h>
+#include "ui/text.h"
 
 namespace rockey {
 
@@ -145,12 +146,11 @@ int Display::DrawText(FontRole role, int16_t x, int16_t y, const char* s, size_t
   int16_t baselineY = static_cast<int16_t>(y + FontAscent(role));
   size_t i = 0;
   while (i < len && s[i]) {
-    uint32_t cp = static_cast<uint8_t>(s[i]);
-    size_t adv = 1;
-    if (cp >= 0xF0) adv = 4;
-    else if (cp >= 0xE0) adv = 3;
-    else if (cp >= 0xC0) adv = 2;
-    if (i + adv > len) break;
+    // Font tables are indexed by Unicode codepoint, never a UTF-8 lead byte.
+    uint32_t cp = 0;
+    DecodeStatus status;
+    size_t adv = Utf8Next(s, len, i, &cp, &status);
+    if (!adv) break;
 
     int16_t a = 0;
     bool has = AdvanceOne(role, cp, &a) != 0;
@@ -174,18 +174,48 @@ int Display::MeasureText(FontRole role, const char* s, size_t len) {
   int w = 0;
   size_t i = 0;
   while (i < len && s[i]) {
-    uint32_t cp = static_cast<uint8_t>(s[i]);
-    size_t adv = 1;
-    if (cp >= 0xF0) adv = 4;
-    else if (cp >= 0xE0) adv = 3;
-    else if (cp >= 0xC0) adv = 2;
-    if (i + adv > len) break;
+    uint32_t cp = 0;
+    DecodeStatus status;
+    size_t adv = Utf8Next(s, len, i, &cp, &status);
+    if (!adv) break;
     int16_t a = 0;
     AdvanceOne(role, cp, &a);
     w += a;
     i += adv;
   }
   return w;
+}
+
+void Display::DrawAsciiArt(FontRole role, int x, int y, const char* text,
+                           uint16_t fg, uint8_t scale, uint8_t shear) {
+  if (!text || !scale || scale > 6 || shear > 8) return;
+  const Font* font = FontGet(role);
+  for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p; ++p) {
+    if (*p < 32 || *p > 126) continue;
+    if (font->backend == FontBackend::kBuiltin) {
+      // 内置 GLCD 字库也复用现有资源；前背景同色表示只绘制前景。
+      tft.drawChar(x, y, *p, fg, fg, scale);
+      x += 6 * scale;
+      continue;
+    }
+    const TableGlyph* glyph = FontLookup(role, *p);
+    if (!glyph) continue;
+    const auto& g = *glyph;
+    const int top = font->table->baseline - g.yOffset;
+    for (int row = 0; row < g.height; ++row) {
+      const int slant = shear * (font->table->yAdvance - top - row) / font->table->yAdvance;
+      for (int col = 0; col < g.width; ++col) {
+        const uint32_t bit = g.bitOffset + row * g.width + col;
+        if (bit >= g.bitOffset + g.bitLen) break;
+        if (font->table->bitmap[bit >> 3] & (0x80u >> (bit & 7))) {
+          const Rect pixel{x + (g.xOffset + col) * scale + slant,
+                           y + (top + row) * scale, scale, scale};
+          Fill(pixel.Intersect(g_screen), fg);
+        }
+      }
+    }
+    x += g.xAdvance * scale;
+  }
 }
 
 void Display::DrawTextIn(const Rect& box, FontRole role, const char* s, size_t len, uint16_t fg,
@@ -202,10 +232,12 @@ void Display::DrawTextIn(const Rect& box, FontRole role, const char* s, size_t l
 }
 
 void Display::DrawProgress(const Rect& box, uint8_t percent, uint16_t fg, uint16_t bg) {
-  Fill(box, bg);
   if (percent > 100) percent = 100;
   int16_t inner = static_cast<int16_t>((static_cast<int32_t>(box.w) * percent) / 100);
+  // 直接绘制两段最终颜色，不能先清黑整条再重画已完成区域，避免长按时闪烁。
   if (inner > 0) Fill(Rect{box.x, box.y, inner, box.h}, fg);
+  if (inner < box.w) Fill(Rect{static_cast<int16_t>(box.x + inner), box.y,
+                             static_cast<int16_t>(box.w - inner), box.h}, bg);
   Frame(box, fg);
 }
 

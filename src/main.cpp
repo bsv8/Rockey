@@ -2,7 +2,6 @@
 
 #include "core/app.h"
 #include "core/log.h"
-
 // Rockey 硬件 Vault 固件入口。
 //
 // 安全要点：
@@ -11,10 +10,5 @@
 //  - 锁定/断电/重启后，私钥与派生材料都不再驻留内存。
 static rockey::App g_app;
 
-void setup() {
-  g_app.Begin();
-}
-
-void loop() {
-  g_app.Loop();
-}
+void setup() { g_app.Begin(); }
+void loop() { g_app.Loop(); }

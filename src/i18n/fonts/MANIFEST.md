@@ -6,8 +6,8 @@
 - LANG：`zh-Hans`
 - FONT_PROFILE：`fusion-pixel`
 - GLYPH_SET：`common`
-- 文案表 `src/i18n/strings.h` sha256：`20ac08231a26a153112136986680971d626125ad4e18a27dfa0bdb8d2ce07629`
-- 固定 UI 文案条数：248
+- 文案表 `src/i18n/strings.h` sha256：`9a2ee4604aaa70f060e0f772de4ec9b8bb4fb5105a159d9bd89e5ba49a9410de`
+- 固定 UI 文案条数：254
 
 ## 字体来源
 
@@ -22,12 +22,12 @@
 
 | 字体@字号 | 文件 | 码位 | 字形数 | 位图字节 |
 | --- | --- | --- | --- | --- |
-| `fp-mono-latin@12` | fusion-pixel-12px-monospaced-latin.otf | 12px | 462 | 6715 |
-| `fp-mono-latin@24` | fusion-pixel-12px-monospaced-latin.otf | 24px | 462 | 27194 |
-| `fp-prop-latin@12` | fusion-pixel-12px-proportional-zh_hans.otf | 12px | 462 | 6806 |
-| `fp-prop-latin@24` | fusion-pixel-12px-proportional-zh_hans.otf | 24px | 375 | 24059 |
+| `fp-mono-latin@12` | fusion-pixel-12px-monospaced-latin.otf | 12px | 483 | 6907 |
+| `fp-mono-latin@24` | fusion-pixel-12px-monospaced-latin.otf | 24px | 483 | 27968 |
+| `fp-prop-latin@12` | fusion-pixel-12px-proportional-zh_hans.otf | 12px | 483 | 7036 |
+| `fp-prop-latin@24` | fusion-pixel-12px-proportional-zh_hans.otf | 24px | 383 | 24529 |
 
-位图合计 64774 字节（随固件存放在 flash，不占 RAM）。
+位图合计 66440 字节（随固件存放在 flash，不占 RAM）。
 
 ## 缺字报告
 

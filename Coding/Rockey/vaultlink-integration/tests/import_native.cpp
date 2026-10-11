@@ -10,8 +10,11 @@
 #include <chrono>
 #include <cstdio>
 #include <csignal>
+#include <cstdlib>
 static volatile sig_atomic_t localExportMenu=1;
+static volatile sig_atomic_t hostPairApproved=0;
 static void arm_host_export_menu(int){localExportMenu=1;}
+static void approve_host_pair(int){hostPairApproved=1;}
 using namespace vaultlink;
 int random_os(void*,unsigned char* b,size_t n){int fd=open("/dev/urandom",O_RDONLY);if(fd<0)return -1;size_t at=0;while(at<n){auto k=read(fd,b+at,n-at);if(k<=0){close(fd);return -1;}at+=k;}return close(fd);}
 class Pipe final:public ByteTransport {
@@ -37,6 +40,12 @@ int main(int argc,char** argv){try {
   require(argc==1||(argc==6&&(std::string(argv[1])=="import-staged"||std::string(argv[1])=="key-wrapped"||std::string(argv[1])=="device-committed")),"invalid-fixture");
   require(rockey::store::Init()&&KeyStore::Init(),"storage-init");
   rockey::vlp::ProvisionKeys keys;keys.arm("12345678",8);Pipe pipe;HostPinUI ui(keys);
+  // Explicit host button adapter: tests can withhold device approval and
+  // verify the displayed pairing request before approving the browser.
+  const bool manualPair=getenv("ROCKEY_HOST_MANUAL_PAIR")!=nullptr;
+  signal(SIGUSR2,approve_host_pair);
+  const auto pair=[](const std::string& code){fprintf(stderr,"host-pair:%s\n",code.c_str());return true;};
+  const auto pairPoll=[manualPair]{return manualPair&&!hostPairApproved?0:1;};
   std::unique_ptr<rockey::vlp::Runtime> wrapped;std::unique_ptr<rockey::vlp::ProvisionRuntime> provision;
   if(argc==6){
     // Named public commit-point fixture, not a simulated physical power cut.
@@ -56,10 +65,10 @@ int main(int argc,char** argv){try {
       // Boot unlock uses the actual stored PIN-encrypted envelope.
       require(KeyStore::Unlock("12345678",8)==Status::kOk,"fixture-unlock-failed");
       static rockey::vlp::PolicyStore policy;
-      wrapped=std::make_unique<rockey::vlp::Runtime>(pipe,random_os,1,ui,policy,[](const std::string&){return true;},[]{return 1;},[]{},[]{return false;},[]{});
+      wrapped=std::make_unique<rockey::vlp::Runtime>(pipe,random_os,1,ui,policy,pair,pairPoll,[]{},[]{return false;},[]{});
     }
   }
-  if(!wrapped)provision=std::make_unique<rockey::vlp::ProvisionRuntime>(pipe,random_os,1,ui,keys,[](const std::string&){return true;},[]{return 1;},[]{});
+  if(!wrapped)provision=std::make_unique<rockey::vlp::ProvisionRuntime>(pipe,random_os,1,ui,keys,pair,pairPoll,[]{});
   while(!pipe.eof){if(wrapped)wrapped->poll();else provision->poll();usleep(1000);}
   return 0;
 }catch(const std::exception& e){fprintf(stderr,"failure:%s\n",e.what());return 1;}}

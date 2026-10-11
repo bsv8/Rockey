@@ -37,7 +37,7 @@ LANG_COL = {"en": 1, "zh-Hans": 2, "zh-Hant": 3, "zh-Hk": 4, "ja": 5}
 ROLES = ["title", "body", "small", "mono_small", "mono_large"]
 
 ALWAYS = (
-    " !\"#$%&'()*+,-./0123456789:;<=>?@"
+    " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 )
 
@@ -199,7 +199,8 @@ class Rasterizer:
         x0, y0, x1, y1 = bbox
         w, h = max(1, x1 - x0), max(1, y1 - y0)
         adv = int(round(f.getlength(ch)))
-        g = Glyph(cp=cp, x_advance=adv, x_offset=x0, y_offset=asc - y0,
+        # anchor="ls" already reports coordinates relative to the baseline.
+        g = Glyph(cp=cp, x_advance=adv, x_offset=x0, y_offset=-y0,
                   width=w, height=h)
         if cp == 0x20:
             g.bits = b""
@@ -437,16 +438,16 @@ def emit(args, manifest, profile, rows, role_groups) -> int:
         entries = []
         for cp in cps:
             g = grp.rendered[cp]
-            off = len(bm)
+            off = len(bm) * 8  # TableGlyph offsets and lengths are in bits.
             bm.extend(g.bits)
-            entries.append((cp, off, len(g.bits), g.x_advance, g.x_offset, g.y_offset,
+            entries.append((cp, off, g.width * g.height if g.bits else 0, g.x_advance, g.x_offset, g.y_offset,
                             g.width, g.height))
         asc, desc = RASTERIZER.font(grp.font.path, grp.size).getmetrics()
         y_advance = asc + desc
         x_height = 0
         if 0x78 in grp.rendered:
             gx = grp.rendered[0x78]
-            x_height = gx.y_offset + gx.height - 1
+            x_height = gx.y_offset
         out_bytes.append(_c_array(f"gfx_g{gi}_bitmap", bytes(bm)))
         out_bytes.append(b"".join([
             _struct_array(f"gfx_g{gi}_glyphs", entries),

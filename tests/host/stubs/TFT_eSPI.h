@@ -19,6 +19,7 @@ class TFT_eSPI {
   void setTextColor(uint16_t fg, uint16_t bg);
   void setTextFont(uint8_t f);
   void drawChar(uint16_t c, int32_t x, int32_t y);
+  void drawChar(int32_t x, int32_t y, uint16_t c, uint32_t fg, uint32_t bg, uint8_t size);
 };
 
 #endif  // ROCKEY_STUB_TFT_ESPI_H

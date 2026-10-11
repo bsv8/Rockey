@@ -16,6 +16,10 @@
   X(kInitializeChoice, "New key or import", "新建私钥或导入", "新建私鑰或匯入", "新建私鑰或匯入", "新しい鍵または取り込み") \
   X(kInitializeNew, "New key", "新建私钥", "新建私鑰", "新建私鑰", "新しい鍵") \
   /* 通用 */                                                                                        \
+  X(kSoundAutoOn, "Auto approval sound ON", "开启自动授权声音", "開啟自動授權聲音", "開啟自動授權聲音", "自動許可の音をオン") \
+  X(kSoundAutoOff, "Auto approval sound OFF", "关闭自动授权声音", "關閉自動授權聲音", "關閉自動授權聲音", "自動許可の音をオフ") \
+  X(kSoundManualOn, "Manual approval sound ON", "开启手动授权声音", "開啟手動授權聲音", "開啟手動授權聲音", "手動許可の音をオン") \
+  X(kSoundManualOff, "Manual approval sound OFF", "关闭手动授权声音", "關閉手動授權聲音", "關閉手動授權聲音", "手動許可の音をオフ") \
   X(kAppName, "Rockey", "Rockey", "Rockey", "Rockey", "Rockey")                                       \
   X(kOk, "OK", "确定", "確定", "確定", "OK")                                                         \
   X(kCancel, "Cancel", "取消", "取消", "取消", "キャンセル")                                           \
@@ -32,7 +36,6 @@
   X(kInfoProtocol, "Protocol", "协议", "協議", "協議", "プロトコル")                                  \
   X(kInfoLanguage, "Language", "语言", "語言", "語言", "言語")                                       \
   X(kInfoPublicKey, "Public key", "公钥", "公鑰", "公鑰", "公開鍵")                                   \
-  X(kInfoBattery, "Battery", "电量", "電量", "電量", "バッテリー")                                   \
   X(kInfoHeap, "Free RAM", "空闲内存", "可用記憶體", "可用記憶體", "空きメモリ")                      \
   X(kInfoSecurityNote,                                                                              \
     "Experimental device. Not a tamper-proof chip.",                                                 \
@@ -45,6 +48,8 @@
   X(kSecDisabled, "Disabled", "未启用", "未啟用", "未啟用", "無効")                                   \
   /* 锁定与 PIN */                                                                                   \
   X(kLockTitle, "Unlock wallet", "解锁钱包", "解鎖錢包", "解鎖錢包", "ウォレット解除")                  \
+  X(kLockUnlock, "Unlock", "解锁", "解鎖", "解鎖", "解除") \
+  X(kLockUnlocking, "Unlocking...", "正在解锁中", "正在解鎖中", "正在解鎖中", "解除しています") \
   X(kLockEnterPin, "Enter PIN", "输入密码", "輸入密碼", "輸入密碼", "PINを入力")                      \
   X(kLockSetPin, "Set a new PIN", "设置新密码", "設定新密碼", "設定新密碼", "新しいPINを設定")         \
   X(kLockConfirmPin, "Enter it again", "再次输入", "再次輸入", "再次輸入", "もう一度入力")              \
@@ -69,7 +74,6 @@
   X(kMenuReview, "Review request", "查看待确认请求", "檢視待確認請求", "檢視待確認請求",                \
     "確認待ちの要求")                                                                                \
   X(kMenuGrants, "Session decisions", "会话决定", "會話決定", "會話決定", "セッション決定")             \
-  X(kMenuLock, "Lock now", "立即锁定", "立即鎖定", "立即鎖定", "今すぐロック")                         \
   X(kMenuDeviceInfo, "Device info", "设备信息", "裝置資訊", "裝置資訊", "デバイス情報")                 \
   X(kMenuKeyDetail, "Full public key", "完整公钥", "完整公鑰", "完整公鑰", "公開鍵全体")                 \
   X(kMenuImportKey, "Import key", "迁入密钥", "匯入密鑰", "匯入密鑰", "鍵のインポート")                \
@@ -136,7 +140,7 @@
   X(kSumLimits, "Limits", "限额", "限額", "限額", "上限")                                             \
   X(kSumRisks, "Warnings", "警告", "警告", "警告", "警告")                                            \
   X(kSumExcludes, "Not included", "不包含", "不包含", "不包含", "含まないもの")                       \
-  X(kSumHoldConfirm, "Hold B to confirm", "长按 B 确认", "長按 B 確認", "長按 B 確認", "Bを長押しで確定") \
+  X(kSumHoldConfirm, "Hold to approve", "长按授权同意", "長按授權同意", "長按授權同意", "長押しで許可") \
   X(kSumHoldDeny, "Hold B to deny", "长按 B 拒绝", "長按 B 拒絕", "長按 B 拒絕", "Bを長押しで拒否")     \
   X(kSumViewScope, "Hold C for full scope", "长按 C 查看完整范围", "長按 C 查看完整範圍",                \
     "長按 C 查看完整範圍", "C長押しで範囲全体")                                                        \
@@ -329,7 +333,7 @@
   X(kBtnNext, "Next", "下一个", "下一個", "下一個", "次へ")                                            \
   X(kBtnDown, "Down", "下", "下", "下", "下")                                                          \
   X(kBtnHold, "Hold", "长按", "長按", "長按", "長押し")                                                 \
-  X(kBtnHoldConfirm, "Hold confirm", "长按确认", "長按確認", "長按確認", "長押し確定")                  \
+  X(kBtnHoldConfirm, "Hold to approve", "长按授权同意", "長按授權同意", "長按授權同意", "長押しで許可") \
   X(kBtnHoldDeny, "Hold deny", "长按拒绝", "長按拒絕", "長按拒絕", "長押し拒否")                        \
   X(kBtnDelete, "Delete", "删除", "刪除", "刪除", "削除")                                               \
   X(kBtnMore, "More", "更多", "更多", "更多", "もっと")                                                 \
@@ -343,7 +347,7 @@
 #define ROCKEY_VLP_STRINGS(X) \
   X(kVlpDecisionOnce, "Once: allow or deny", "本次决定：允许或否决", "本次決定：允許或否決", "本次決定：允許或否決", "今回のみ：許可か拒否") \
   X(kVlpDecisionSession, "This session: allow or deny", "本会话决定：允许或否决", "本會話決定：允許或否決", "本會話決定：允許或否決", "セッション：許可か拒否") \
-  X(kVlpDecisionToggle, "Tap mode/Hold OK", "切换/长按确认", "切換/長按確認", "切換/長按確認", "切替/長押し確認") \
+  X(kVlpDecisionToggle, "Hold to approve", "长按授权同意", "長按授權同意", "長按授權同意", "長押しで許可") \
   X(kVlpGrantsPrevious, "Prev/Hold back", "上项/长按返回", "上項/長按返回", "上項/長按返回", "前/長押し戻る") \
   X(kVlpGrantsCancel, "Cancel/Hold all", "撤销/长按全部", "撤銷/長按全部", "撤銷/長按全部", "取消/長押し全て") \
   X(kVlpReview, "Wallet approval", "钱包确认", "錢包確認", "錢包確認", "ウォレット確認") \

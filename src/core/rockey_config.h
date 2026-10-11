@@ -12,6 +12,8 @@
 #define ROCKEY_FIRMWARE_VERSION_MINOR 0
 #define ROCKEY_FIRMWARE_VERSION_PATCH 0
 
+// 电池、物理供电切换与关机交由设备和用户处理；固件不检测 VBUS。
+// 通讯断开只撤销连接会话，不改变通电设备的本地解锁状态。
 #ifndef ROCKEY_FIRMWARE_BUILD_ID
 #define ROCKEY_FIRMWARE_BUILD_ID "dev-unversioned"
 #endif
@@ -62,7 +64,6 @@
 #define ROCKEY_LIVENESS_TIMEOUT_MS 8000u
 #define ROCKEY_HANDSHAKE_TIMEOUT_MS 60000u
 #define ROCKEY_REQUEST_TTL_MS 120000u
-#define ROCKEY_LOCK_IDLE_MS 300000u
 
 // ── 业务参数 ──────────────────────────────────────────────────────────
 #define ROCKEY_IDENTITY_CHALLENGE_LEN 32u

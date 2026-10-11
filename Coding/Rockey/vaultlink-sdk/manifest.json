@@ -11,7 +11,7 @@
     "device/sdk/bsv.hpp": "2633fb0e1cc152bc3703b75937a759271193099525796c93e50f9a951883f09d",
     "device/sdk/cbor.hpp": "dbc31845a745937976972ce35e4b2be8bae19b01272f5f2be2c1ce423fefcff3",
     "device/sdk/crypto.hpp": "a7c273a67ebe9a3ded3d84f7e2c8767bbdc75d59be4d470a56a7ecc815138441",
-    "device/sdk/endpoint.hpp": "666c2adc19f39ee561de42e2bde3fb1cbd2340231e2aae4aaff59cb4f4e30ab5",
+    "device/sdk/endpoint.hpp": "1cfc6cbc464403c12c25131bd482af0ae6fada7fb779bf9fbac2c4ab87a38323",
     "device/sdk/feepool.hpp": "1366b4f7843d75478436b9ef6b482b15cedef085fec46ba147300fdedbf70144",
     "device/sdk/fragments.hpp": "6b743e1f0db7e8db4194da9836e7d64e7e119ff27e609389547909955be14048",
     "device/sdk/local_secret.hpp": "ff44734c3b3fcbd686f542655be75c357426d722347f749dcb05c3dd0ecccee1",
@@ -50,5 +50,11 @@
     "device/sdk/migration.hpp": "c9b7d1d29cbaa95232bdddbf5ddd9bf3d356afbed4408006214e045b21046295",
     "device/sdk/migration_import.hpp": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a",
     "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a"
+  },
+  "sourceOverrides": {
+    "reason": "统一握手阶段 60 秒等待，sourceCommit 之后的工作区修正",
+    "files": {
+      "device/sdk/endpoint.hpp": "1cfc6cbc464403c12c25131bd482af0ae6fada7fb779bf9fbac2c4ab87a38323"
+    }
   }
 }

@@ -20,10 +20,9 @@ namespace ui {
 // ── 页头 / 页脚 ────────────────────────────────────────────────────
 void DrawHeader(const char* title, const char* rightHint);
 void DrawFooter(const char* leftLabel, const char* midLabel, const char* rightLabel);
-void DrawFooterLockHint(bool showLock);
 
 // ── 菜单 ───────────────────────────────────────────────────────────
-constexpr uint8_t kMaxMenuItems = 9;
+constexpr uint8_t kMaxMenuItems = 10;
 
 struct MenuView {
   const char* items[kMaxMenuItems];
@@ -99,7 +98,6 @@ class HoldConfirm {
 void DrawKeyValue(const Rect& area, const char* label, const char* value, uint8_t row);
 void DrawNotice(const char* text, uint16_t color);
 void DrawHexBlock(const Rect& area, const char* hex, bool mono);
-void DrawBatteryIndicator();
 
 }  // namespace ui
 }  // namespace rockey
