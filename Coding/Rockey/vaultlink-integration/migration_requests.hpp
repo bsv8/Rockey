@@ -3,9 +3,9 @@
 #include "../vaultlink-sdk/device/sdk/migration.hpp"
 #include "migration_private.hpp"
 namespace rockey::vlp {
-/** Shared production request router, also run over native encrypted pipes.
- * There are no private-key import/export endpoints here yet. Pending migration
- * permits public recovery reads and Endpoint's cancellation/lock controls only. */
+/** Shared production router, also exercised over native encrypted pipes.
+ * Export and optional erase require their dedicated physical decisions;
+ * unfinished transfers block ordinary business, with public recovery reads. */
 class MigrationRequests {
   PaymentService& payments;
   vaultlink::MigrationJournal& journal;
@@ -25,7 +25,7 @@ class MigrationRequests {
     auto recovery=journal.status();
     if(recovery.kind!=vaultlink::Value::Null) {
       vaultlink::require(recovery.at("publicKey").binary(33)==publicKey,"migration-conflict");
-      if(journal.pending()&&recovery.at("phase").string()!="erasing")vaultlink::require(recovery.at("policyHash").binary(32)
+      if(journal.pending()&&recovery.at("direction").string()=="to-hardware"&&recovery.at("phase").string()=="staged")vaultlink::require(recovery.at("policyHash").binary(32)
         ==vaultlink::sha256(payments.policy_bank()),"migration-policy-changed");
     }
   }
@@ -39,7 +39,12 @@ class MigrationRequests {
       vaultlink::require(private_requests!=nullptr,"unsupported");return private_requests->prepare(op,body,hash);
     }
     if(journal.pending()&&journal.status().at("phase").string()=="erasing")throw vaultlink::Failure("migration-erasing");
-    vaultlink::require((!journal.pending()&&(!private_requests||!private_requests->armed()))||op=="payment.policy-export","migration-pending");
+    // Export preserves the source key; a completed import already has an
+    // actual PIN-wrapped key and bank. Browser interruption must not lock
+    // ordinary device business. Only an unfinished import stage blocks it.
+    const auto state=journal.status();
+    vaultlink::require(!journal.pending()||state.at("direction").string()=="to-software"
+      ||state.at("phase").string()!="staged"||op=="payment.policy-export","migration-pending");
     return payments.prepare(op,body,hash);
   }
 };

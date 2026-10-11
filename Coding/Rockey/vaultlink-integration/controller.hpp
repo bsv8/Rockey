@@ -80,7 +80,6 @@ class Controller final : public ApprovalUI {
   bool pin_frame=false,pin_frame_confirm=false;
   size_t pin_frame_entered=0;
   bool entering_pin=false;
-  bool export_armed=false;
   static int random(void*, unsigned char* out, size_t count) { rand::Fill(out, count); return 0; }
   static const char* label(const std::string& key) {
     using i18n::Str;
@@ -155,10 +154,8 @@ class Controller final : public ApprovalUI {
       {"reviews",vaultlink::Value(uint64_t(testReviews))},{"fault",vaultlink::Value(testFault)}});
   }
 #endif
-  void arm_export(){vaultlink::require(keystore::KeyStore::IsUnlocked(),"locked");cancel_grants();export_armed=true;}
   void arm_import(const char* p,size_t n,keystore::BsvNetwork network){lock();provision_keys.arm(p,n,network);provision_started=::millis();}
   bool importing()const{return bool(provision_runtime)||provision_keys.ready();}
-  void cancel_export(){export_armed=false;}
   vaultlink::Value signing_channels() const{vaultlink::require(bool(runtime),"locked");return runtime->signing_channels();}
   vaultlink::Value payment_channels() const{vaultlink::require(bool(runtime),"locked");return runtime->payment_channels();}
   void configure_signing(const std::string& id,const std::string& mode,uint64_t revision){vaultlink::require(bool(runtime),"locked");runtime->configure_signing(id,mode,revision);}
@@ -187,10 +184,9 @@ class Controller final : public ApprovalUI {
     runtime = std::make_unique<Runtime>(transport, random, run, *this, store,
       [this](const std::string& code) {
         begin(Review{"pair", "", "", {{"pair", code}}}); pairing = true; pair_answer = 0; return false;
-      }, [this] { return pair_answer; }, [this] { clear(); },
-      [this]{return export_armed;},[this]{export_armed=false;});
+      }, [this] { return pair_answer; }, [this] { clear(); });
   }
-  void lock() { if(runtime||provision_runtime||provision_keys.ready())recovery_checked=false;runtime.reset();erased_runtime.reset();provision_runtime.reset();provision_keys.clear(); clear();export_armed=false;connected_=false;ui::SetBrowserConnected(false); }
+  void lock() { if(runtime||provision_runtime||provision_keys.ready())recovery_checked=false;runtime.reset();erased_runtime.reset();provision_runtime.reset();provision_keys.clear(); clear();connected_=false;ui::SetBrowserConnected(false); }
   void poll() {
     const bool importing_=importing();
     const bool erased=!importing_&&erased_recovery_available(keystore::KeyStore::HasKey());

@@ -79,7 +79,7 @@ int main() { try {
   Bytes key(32);key[31]=1;
   require(KeyStore::SetPinAndWrap("12345678",8,key.data(), rockey::keystore::BsvNetwork::Main)==Status::kOk && KeyStore::Unlock("12345678",8)==Status::kOk,"key-init");wipe_bytes(key);
   Pipe pipe;HostUI ui;rockey::vlp::PolicyStore store;unsigned revoked=0,pairs=0;
-  rockey::vlp::Runtime device(pipe,random_bytes,1,ui,store,[&](const std::string&){++pairs;return false;},[]{return 1;},[&]{++revoked;ui.clear();},[]{return false;},[]{});
+  rockey::vlp::Runtime device(pipe,random_bytes,1,ui,store,[&](const std::string&){++pairs;return false;},[]{return 1;},[&]{++revoked;ui.clear();});
   delay(600000);device.poll();require(KeyStore::IsUnlocked(),"idle-locked");
   HostPeer a(pipe,device);a.connect(9000);unsigned before=revoked;
   delay(9000);device.poll();require(revoked>before&&ui.clears>0&&KeyStore::IsUnlocked(),"timeout-locked-or-retained-session");

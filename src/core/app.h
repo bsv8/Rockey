@@ -42,7 +42,6 @@ class App {
     kChannels,
     kBackup,
     kErase,
-    kMigrate,
     kError,
   };
 
@@ -81,7 +80,6 @@ class App {
   void DrawGrants();
   void DrawBackup();
   void DrawErase();
-  void DrawMigrate();
   void DrawError();
 
   void OnButton(Btn btn, BtnEvent ev);
@@ -198,7 +196,6 @@ class App {
   ops::ErrorCode errorCode_ = ops::ErrorCode::kOk;
   char errorText_[96] = {0};
   char infoLine_[64] = {0};
-  bool migrationArmed_ = false;
   // 恢复备份
   char recoveryCode_[27] = {0};
   uint8_t recoveryBlob_[192] = {0};

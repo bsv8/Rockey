@@ -322,7 +322,7 @@ int main() {
   DrainPinWait();Check(KeyStore::Unlock(kPin,strlen(kPin))==Status::kOk,"normal device unlock recovers only after the PIN wait");
   physicalPin.clear();KeyStore::Lock();
   Begin("keystore/private-export-host-commit-physical-erase");
-  Check(KeyStore::Unlock(kPin,strlen(kPin))==Status::kOk,"unlock actual hardware key before entering export menu");
+  Check(KeyStore::Unlock(kPin,strlen(kPin))==Status::kOk,"unlock actual hardware key before browser-triggered export");
   auto osRandom=[](void*,unsigned char* bytes,size_t count)->int {
     std::ifstream entropy("/dev/urandom",std::ios::binary);entropy.read(reinterpret_cast<char*>(bytes),count);return entropy?0:-1;
   };
@@ -332,8 +332,7 @@ int main() {
     {"channels",Value::list({})},{"sessions",Value::list({})},
     {"pending",Value::list({})},{"pools",Value::list({})}}),65536);
   Check(rockey::store::WriteRecord("/vault/vlp-policy.bin",1,bank.data(),bank.size(),nullptr),"persist actual canonical source ledger before export");
-  bool menuArmed=false;
-  rockey::vlp::KeyStoreMigrationKeys deviceKeys(own,[&]{return menuArmed;},[&]{menuArmed=false;},[&]{runtimeCopy.lock();});
+  rockey::vlp::KeyStoreMigrationKeys deviceKeys(own,[&]{runtimeCopy.lock();});
   rockey::vlp::MigrationStore migrationDisk;MigrationJournal deviceJournal(migrationDisk);
   // Explicit HOST event adapter: verified=true only after the real three-button
   // input model authenticates against the real KeyStore. Not a physical-button test.
@@ -348,50 +347,42 @@ int main() {
   const std::string transferId="dddddddd-dddd-dddd-dddd-dddddddddddd";
   auto exportBody=obj({{"id",transferId},{"walletGeneration","eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"},
     {"sourceHash",Bytes(32,1)},{"policyHash",sha256(bank)}});
-  bool rejectedUnarmed=false;
-  try{privateRequests.prepare("migration.export",exportBody,commitment("key-migration-export",exportBody));}
-  catch(const Failure& e){rejectedUnarmed=std::string(e.what())=="device-export-not-armed";}
-  Check(rejectedUnarmed&&deviceJournal.status().kind==Value::Null,"browser alone cannot arm private-key export");
-  menuArmed=true;privateUI.answer={rockey::vlp::Approval::Once,0,false};
+  privateUI.answer={rockey::vlp::Approval::Denied,0,false};
   {
     auto rejected=privateRequests.prepare("migration.export",exportBody,commitment("key-migration-export",exportBody));
-    Check(!rejected.cache_result&&rejected.operation->ready()&&!rejected.operation->allowed(),"a once decision without PIN cannot export or cache a private key");
+    Check(!rejected.cache_result&&rejected.operation->ready()&&!rejected.operation->allowed(),"browser export still requires a fresh physical once decision");
     bool directDenied=false;try{rejected.operation->execute();}catch(const Failure&){directDenied=true;}
-    Check(directDenied&&deviceJournal.status().kind==Value::Null,"direct execution cannot bypass physical PIN authorization");
+    Check(directDenied&&deviceJournal.status().kind==Value::Null,"denial cannot export the private key");
   }
-  Check(!menuArmed,"denial disarms the local export menu");
-  Check(physicalPin.begin(),"begin private export PIN verification");
-  for(size_t i=0;i<strlen(kPin);++i){for(char digit='0';digit<kPin[i];++digit)physicalPin.next();physicalPin.select();}
-  menuArmed=true;privateUI.answer={rockey::vlp::Approval::Once,0,physicalPin.verified()};
+  privateUI.answer={rockey::vlp::Approval::Once,0,false};
   {
     auto exportRequest=privateRequests.prepare("migration.export",exportBody,commitment("key-migration-export",exportBody));
-    Check(exportRequest.operation->ready()&&exportRequest.operation->allowed()&&privateUI.review.requires_pin
-      &&!privateUI.review.can_remember&&!privateUI.review.can_raise,"export requires fresh PIN and physical once-only approval");
+    Check(exportRequest.operation->ready()&&exportRequest.operation->allowed()&&!privateUI.review.requires_pin
+      &&!privateUI.review.can_remember&&!privateUI.review.can_raise,"export requires physical once-only approval without repeated PIN");
     auto result=exportRequest.operation->execute();
     Check(result.at("privateKey").binary(32)==Bytes(kPrivB,kPrivB+32),"export returns the actual KeyStore private key once");
-    Check(result.at("migration").at("phase").string()=="device-committed"&&!menuArmed,"public journal commits before delivering key and disarms export");
+    Check(result.at("migration").at("phase").string()=="device-committed","public journal commits before delivering key");
   }
   auto commitBody=obj({{"id",transferId},{"targetHash",Bytes(32,3)}});
   bool prematureErase=false;try{privateRequests.prepare("migration.erase",commitBody,commitment("key-migration-erase",commitBody));}
   catch(const Failure&){prematureErase=true;}
   Check(prematureErase&&KeyStore::HasKey(),"device erase is impossible before the browser commit acknowledgement");
   auto acknowledge=privateRequests.prepare("migration.host-commit",commitBody,commitment("key-migration-host-commit",commitBody));
-  Check(acknowledge.operation->ready()&&acknowledge.operation->execute().at("migration").at("phase").string()=="host-committed",
+  Check(acknowledge.operation->ready()&&acknowledge.operation->execute().at("migration").at("phase").string()=="complete",
     "public browser commit binds its target KeyHold hash");
   auto changedCommit=obj({{"id",transferId},{"targetHash",Bytes(32,4)}});bool changedTarget=false;
   try{privateRequests.prepare("migration.erase",changedCommit,commitment("key-migration-erase",changedCommit));}
   catch(const Failure&){changedTarget=true;}
   Check(changedTarget&&KeyStore::HasKey(),"another target hash cannot erase the source key");
-  privateUI.answer={rockey::vlp::Approval::Once,0,false};
+  privateUI.answer={rockey::vlp::Approval::Denied,0,false};
   {
-    auto eraseRequest=privateRequests.prepare("migration.erase",commitBody,commitment("key-migration-erase",commitBody));
-    Check(eraseRequest.operation->ready()&&!eraseRequest.operation->allowed()&&KeyStore::HasKey(),"prior export PIN approval does not authorize later erase");
+    auto deniedErase=privateRequests.prepare("migration.erase",commitBody,commitment("key-migration-erase",commitBody));
+    Check(deniedErase.operation->ready()&&!deniedErase.operation->allowed()&&KeyStore::HasKey(),"optional erase denial retains the key");
   }
-  Check(physicalPin.begin(),"fresh device PIN entry for source erase");
-  for(size_t i=0;i<strlen(kPin);++i){for(char digit='0';digit<kPin[i];++digit)physicalPin.next();physicalPin.select();}
-  privateUI.answer={rockey::vlp::Approval::Once,0,physicalPin.verified()};
+  Check(!deviceJournal.pending()&&deviceJournal.status().at("phase").string()=="complete","retained backup does not leave transfer unfinished");
+  privateUI.answer={rockey::vlp::Approval::Once,0,false};
   auto eraseRequest=privateRequests.prepare("migration.erase",commitBody,commitment("key-migration-erase",commitBody));
-  Check(eraseRequest.operation->ready()&&eraseRequest.operation->allowed(),"only newly verified physical erase is permitted");
+  Check(eraseRequest.operation->ready()&&eraseRequest.operation->allowed(),"new independent physical erase is permitted without repeated PIN");
   auto erased=eraseRequest.operation->execute();
   Check(erased.at("migration").at("phase").string()=="erased"&&!KeyStore::HasKey()&&KeyStore::PrivateKey()==nullptr,
     "hardware source key is erased after host commit and separate physical approval");

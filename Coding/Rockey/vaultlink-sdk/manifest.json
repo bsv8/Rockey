@@ -46,8 +46,8 @@
     "device/sdk/bitfs_wire.hpp": "116342ebcc9829a028bad4d6027773e96745f1be124d543bf33f373bb33e5e67",
     "device/sdk/network_identity.hpp": "6cc5ae8c022958ba0dd1e60af3af105978d15ce832de2d7fd024c842d7be2e60",
     "device/policy_transfer_test.cpp": "d0ec18fd4fa22cbce6de31496fa2aa15c817ad18e67b6217c1ae7290364e521f",
-    "device/migration_journal_test.cpp": "fe29caeffe3cbeec9764e3fff34e013e3cfe420d40d5282c8ca26f02fcff4d5d",
-    "device/sdk/migration.hpp": "c9b7d1d29cbaa95232bdddbf5ddd9bf3d356afbed4408006214e045b21046295",
+    "device/migration_journal_test.cpp": "ed46de5795aa872486e49fd60531dc96fa85059a2796500c9bce32e0c65d1e82",
+    "device/sdk/migration.hpp": "aba999956a207bc62baacb65d18b2a17479c22e1ee39a408be1d0ee7fd8db69c",
     "device/sdk/migration_import.hpp": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a",
     "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a",
     "device/cbor_memory_test.cpp": "ac466902b1c6b497759491454fb70992e8523c069efe800e12fafd2c02fd3706",
@@ -182,10 +182,10 @@
         "sha256": "d0ec18fd4fa22cbce6de31496fa2aa15c817ad18e67b6217c1ae7290364e521f"
       },
       "device/migration_journal_test.cpp": {
-        "sha256": "fe29caeffe3cbeec9764e3fff34e013e3cfe420d40d5282c8ca26f02fcff4d5d"
+        "sha256": "ed46de5795aa872486e49fd60531dc96fa85059a2796500c9bce32e0c65d1e82"
       },
       "device/sdk/migration.hpp": {
-        "sha256": "c9b7d1d29cbaa95232bdddbf5ddd9bf3d356afbed4408006214e045b21046295"
+        "sha256": "aba999956a207bc62baacb65d18b2a17479c22e1ee39a408be1d0ee7fd8db69c"
       },
       "device/sdk/migration_import.hpp": {
         "sha256": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a"
@@ -199,6 +199,14 @@
       "device/sdk/signing_channel.hpp": {
         "sha256": "fe4185cf30d0a5edb6c89cd40f5fdbed380bf463dc4af7d1915fa293ac894710"
       }
+    },
+    "device/sdk/migration.hpp": {
+      "sha256": "aba999956a207bc62baacb65d18b2a17479c22e1ee39a408be1d0ee7fd8db69c",
+      "reason": "一次提交迁移规则的工作区源码增量；实体授权仍由 RocKey 控制"
+    },
+    "device/migration_journal_test.cpp": {
+      "sha256": "ed46de5795aa872486e49fd60531dc96fa85059a2796500c9bce32e0c65d1e82",
+      "reason": "一次提交迁移规则的工作区源码增量；实体授权仍由 RocKey 控制"
     }
   }
 }

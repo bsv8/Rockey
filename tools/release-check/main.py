@@ -131,7 +131,7 @@ def main():
         for p in problems:
             print(f"  FAIL {p}")
         return 1
-    print(f"  ok   已扫描 ELF 符号（{len(syms.splitlines())} 个），无测试按键 / 无通用盲签 / 无旧原始密钥入口（迁移导出另需 PIN 与实体确认）")
+    print(f"  ok   已扫描 ELF 符号（{len(syms.splitlines())} 个），无测试按键 / 无通用盲签 / 无旧原始密钥入口（迁移导出另需设备解锁与实体确认）")
     print("  ok   未发现秘密字符串")
     return 0
 

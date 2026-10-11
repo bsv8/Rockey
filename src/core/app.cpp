@@ -279,8 +279,6 @@ void App::Loop() {
     proto::DeviceState ds;
     if (!keystore::KeyStore::HasKey()) {
       ds = proto::DeviceState::kUninitialized;
-    } else if (migrationArmed_) {
-      ds = proto::DeviceState::kMigration;
     } else if (!keystore::KeyStore::IsUnlocked()) {
       ds = proto::DeviceState::kLocked;
     } else if (link_.SessionCount() > 0) {
@@ -408,7 +406,6 @@ void App::OnButton(Btn btn, BtnEvent ev) {
     case Screen::kMenu:
     case Screen::kInfo:
     case Screen::kPubkey:
-    case Screen::kMigrate:
     case Screen::kBackup:
       HandleMenuInput(btn, ev);
       break;
@@ -793,19 +790,18 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
         case 1: Go(Screen::kGrants); return;
         case 2: Go(Screen::kInfo); return;
         case 3: Go(Screen::kPubkey); return;
-        case 4: vaultlink_->arm_export(); Go(Screen::kMigrate); return;
-        case 5: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
-        case 6: Go(Screen::kErase); return;
-        case 7: LockNow("change PIN"); changingPin_ = true; return;
-        case 10:
+        case 4: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
+        case 5: Go(Screen::kErase); return;
+        case 6: LockNow("change PIN"); changingPin_ = true; return;
+        case 9:
           channelSettings_.signing=[this]{return vaultlink_->signing_channels();};
           channelSettings_.payments=[this]{return vaultlink_->payment_channels();};
           channelSettings_.saveSigning=[this](const std::string& id,const std::string& mode,uint64_t rev){vaultlink_->configure_signing(id,mode,rev);};
           channelSettings_.savePayment=[this](const vaultlink::Channel& c){vaultlink_->configure_payment(c);};
           channelSettings_.reset();Go(Screen::kChannels);return;
-        case 8:
-        case 9: {
-          const bool manual=menuSelected_==9;
+        case 7:
+        case 8: {
+          const bool manual=menuSelected_==8;
           const bool enabled=!sound::Enabled(manual);
           if(!sound::SetEnabled(manual,enabled))ShowErrorScreen(ops::ErrorCode::kResultUnknown);
           // 保存成功再示范对应音色；关闭时只取消该类声音，不播放提示。
@@ -822,9 +818,8 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
   }
 
   if (screen_ == Screen::kInfo || screen_ == Screen::kPubkey ||
-      screen_ == Screen::kMigrate || screen_ == Screen::kBackup) {
+      screen_ == Screen::kBackup) {
     if (btn == Btn::kB && (ev == BtnEvent::kShortPress || ev == BtnEvent::kLongPress)) {
-      if(screen_==Screen::kMigrate)vaultlink_->cancel_export();
       Go(Screen::kMenu);
     }
     return;
@@ -1255,7 +1250,6 @@ void App::Draw() {
     case Screen::kGrants: DrawGrants(); break;
     case Screen::kBackup: DrawBackup(); break;
     case Screen::kErase: DrawErase(); break;
-    case Screen::kMigrate: DrawMigrate(); break;
     case Screen::kError: DrawError(); break;
   }
   pinRowDrawn_=pinPage&&!pinMenuOpen_;
@@ -1364,7 +1358,6 @@ void App::DrawMenu() {
   menu_.Add(i18n::T(i18n::Str::kMenuGrants));
   menu_.Add(i18n::T(i18n::Str::kMenuDeviceInfo));
   menu_.Add(i18n::T(i18n::Str::kMenuKeyDetail));
-  menu_.Add(i18n::T(i18n::Str::kMenuExportKey));
   menu_.Add(i18n::T(i18n::Str::kMenuRecoveryBackup));
   menu_.Add(i18n::T(i18n::Str::kMenuErase));
   menu_.Add(i18n::T(i18n::Str::kMenuChangePin));
@@ -1589,13 +1582,6 @@ void App::DrawErase() {
                       TextAlign::kCenter, VAlign::kTop);
   ui::DrawFooter(i18n::T(i18n::Str::kBtnBack), i18n::T(i18n::Str::kCancel),
                  i18n::T(i18n::Str::kEraseHold));
-}
-
-void App::DrawMigrate() {
-  ui::DrawHeader(i18n::T(i18n::Str::kExportTitle), LangHint());
-  FillContent();
-  ui::DrawNotice(i18n::T(i18n::Str::kExportWarning),color::kYellow);
-  ui::DrawFooter(nullptr,i18n::T(i18n::Str::kBtnBack),nullptr);
 }
 
 void App::DrawError() {

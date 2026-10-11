@@ -39,8 +39,7 @@ class Runtime final {
   using Pairing = std::function<bool(const std::string&)>;
   Runtime(vaultlink::ByteTransport& transport, vaultlink::Rng rng, uint32_t run,
           ApprovalUI& ui, vaultlink::Store& store, Pairing physicalPairing,
-          std::function<int()> pairingPoll, std::function<void()> revokeSessions,
-          std::function<bool()> exportArmed,std::function<void()> disarmExport)
+          std::function<int()> pairingPoll, std::function<void()> revokeSessions)
       : revoke_(std::move(revokeSessions)) {
     vaultlink::require(keystore::KeyStore::IsUnlocked(), "locked");
     vaultlink::require(bool(physicalPairing) && bool(revoke_), "adapter-required");
@@ -52,10 +51,10 @@ class Runtime final {
     secure::Wipe(temporary.data(), temporary.size());
     payments_ = std::make_unique<PaymentService>(*identity_, store, ui,keystore::KeyStore::Info_().bsvNetwork==keystore::BsvNetwork::Test?"test":"main");
     migration_ = std::make_unique<vaultlink::MigrationJournal>(migration_store_);
-    migration_keys_=std::make_unique<KeyStoreMigrationKeys>(identity_->public_key(),std::move(exportArmed),std::move(disarmExport),
+    migration_keys_=std::make_unique<KeyStoreMigrationKeys>(identity_->public_key(),
       [this]{identity_->lock();});
     migration_private_=std::make_unique<MigrationPrivateRequests>(*migration_,*migration_keys_,ui,
-      [this]{return payments_->policy_bank();},[](bool erase){return std::string(i18n::T(erase?i18n::Str::kEraseWarning:i18n::Str::kExportWarning));});
+      [this]{return payments_->policy_bank();},[](bool erase){return std::string(i18n::T(erase?i18n::Str::kMigrationEraseOptional:i18n::Str::kExportWarning));});
     import_requests_=std::make_unique<ImportRequests>(*migration_,nullptr,ui,rng);
     migration_requests_=std::make_unique<MigrationRequests>(*payments_,*migration_,identity_->public_key(),migration_private_.get());
     endpoint_ = std::make_unique<vaultlink::Endpoint>(transport, *identity_, rng, run,

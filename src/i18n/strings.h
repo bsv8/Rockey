@@ -91,7 +91,6 @@
   X(kMenuDeviceInfo, "Device info", "设备信息", "裝置資訊", "裝置資訊", "デバイス情報")                 \
   X(kMenuKeyDetail, "Full public key", "完整公钥", "完整公鑰", "完整公鑰", "公開鍵全体")                 \
   X(kMenuImportKey, "Import key", "迁入密钥", "匯入密鑰", "匯入密鑰", "鍵のインポート")                \
-  X(kMenuExportKey, "Export key", "迁回密钥", "匯出密鑰", "匯出密鑰", "鍵のエクスポート")              \
   X(kMenuRecoveryBackup, "Recovery backup", "恢复备份", "復原備份", "復原備份", "復旧バックアップ")       \
   X(kMenuErase, "Erase device", "擦除设备", "清除裝置", "清除裝置", "デバイスを消去")                   \
   X(kMenuEmpty, "Nothing to review", "没有待确认请求", "沒有待確認請求", "沒有待確認請求",              \
@@ -276,7 +275,7 @@
   X(kMigVerifying, "Verifying key", "正在核对密钥", "正在核對密鑰", "正在核對密鑰", "鍵を検証中")         \
   X(kMigSaved, "Key stored on device", "密钥已存入设备", "密鑰已存入裝置", "密鑰已存入裝置",            \
     "鍵をデバイスに保存しました")                                                                      \
-  X(kMigNoOldKey, "Old key erased. Connect the browser to finish migration.", "旧私钥已擦除。连接浏览器完成迁移。", "舊私鑰已抹除。連接瀏覽器完成遷移。", "舊私鑰已抹除。連接瀏覽器完成遷移。", "旧鍵は消去済みです。ブラウザーに接続して移行を完了してください。") \
+  X(kMigNoOldKey, "Old key erased. Your software wallet is ready to use.", "旧私钥已擦除。软件钱包已可正常使用。", "舊私鑰已抹除。軟體錢包已可正常使用。", "舊私鑰已抹除。軟件錢包已可正常使用。", "旧鍵は消去済みです。ソフトウェアウォレットを使用できます。") \
   X(kMigResetWarning, "Confirm browser migration is complete before device reset.", "确认浏览器迁移已完成，再重置设备。", "確認瀏覽器遷移已完成，再重設裝置。", "確認瀏覽器遷移已完成，再重設裝置。", "ブラウザーの移行完了を確認してからデバイスを初期化してください。") \
   X(kMigStatusTitle, "Migration status", "迁移进度", "遷移進度", "遷移進度", "移行状況")                  \
   X(kMigStageHostPrepared, "Host prepared", "主机已准备", "主機已準備", "主機已準備", "ホスト準備完了")   \
@@ -291,7 +290,7 @@
   X(kMigSameKey, "Same key already on device", "设备已是同一密钥", "裝置已是同一密鑰",                    \
     "裝置已是同一密鑰", "同じ鍵がすでにあります")                                                       \
   /* 导出与备份 */                                                                                    \
-  X(kExportTitle, "Export private key", "迁回私钥", "匯出私鑰", "匯出私鑰", "秘密鍵のエクスポート")       \
+  X(kMigrationEraseOptional, "Software wallet saved. Hold B to erase this device key; hold A to keep a backup.", "软件钱包已保存。长按 B 擦除设备私钥；长按 A 否决并保留备份。", "軟體錢包已儲存。長按 B 擦除裝置私鑰；長按 A 否決並保留備份。", "軟件錢包已儲存。長按 B 擦除裝置私鑰；長按 A 否決並保留備份。", "ウォレット保存済み。B長押しで鍵を消去、A長押しでバックアップを保持。") \
   X(kExportWarning,                                                                                  \
     "The private key leaves this device. Anyone with the host computer can read it. This cannot be "  \
     "undone by re-locking.",                                                                          \
@@ -299,11 +298,6 @@
     "私鑰將離開本裝置。任何拿到這台電腦的人都能讀取它，重新鎖定也無法收回。",                             \
     "私鑰將離開本裝置。任何拿到這部電腦的人都能讀取它，重新鎖定也無法收回。",                             \
     "秘密鍵はデバイスを離れます。この端末を操作できる人は誰でも読み取れ、再ロックしても戻せません。")     \
-  X(kExportHold, "Hold B to export once", "长按 B 一次性导出", "長按 B 一次性匯出", "長按 B 一次性匯出",  \
-    "B長押しで一度だけエクスポート")                                                                   \
-  X(kExportSent, "Export delivered", "导出已交付", "匯出已交付", "匯出已交付", "エクスポート済み")         \
-  X(kExportOnceOnly, "One-time export only", "仅一次性导出", "僅一次性匯出", "僅一次性匯出",              \
-    "一度きりのみ")                                                                                   \
   X(kBackupTitle, "Recovery backup", "恢复备份", "復原備份", "復原備份", "復旧用バックアップ")            \
   X(kBackupExplain,                                                                                  \
     "Write down the code below and keep it offline. It restores the same key on a new device.",       \
