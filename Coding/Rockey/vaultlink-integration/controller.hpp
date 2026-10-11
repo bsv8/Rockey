@@ -123,7 +123,7 @@ class Controller final : public ApprovalUI {
   }
 #endif
   void arm_export(){vaultlink::require(keystore::KeyStore::IsUnlocked(),"locked");cancel_grants();export_armed=true;}
-  void arm_import(const char* p,size_t n){lock();provision_keys.arm(p,n);provision_started=::millis();}
+  void arm_import(const char* p,size_t n,keystore::BsvNetwork network){lock();provision_keys.arm(p,n,network);provision_started=::millis();}
   bool importing()const{return bool(provision_runtime)||provision_keys.ready();}
   void cancel_export(){export_armed=false;}
   size_t grant_count() const{return runtime?runtime->grant_count():0;}

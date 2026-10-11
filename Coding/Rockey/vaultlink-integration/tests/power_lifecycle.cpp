@@ -77,7 +77,7 @@ int main() { try {
   using rockey::keystore::KeyStore;using rockey::keystore::Status;
   require(rockey::store::Init()&&KeyStore::Init(),"storage-init");
   Bytes key(32);key[31]=1;
-  require(KeyStore::SetPinAndWrap("12345678",8,key.data())==Status::kOk && KeyStore::Unlock("12345678",8)==Status::kOk,"key-init");wipe_bytes(key);
+  require(KeyStore::SetPinAndWrap("12345678",8,key.data(), rockey::keystore::BsvNetwork::Main)==Status::kOk && KeyStore::Unlock("12345678",8)==Status::kOk,"key-init");wipe_bytes(key);
   Pipe pipe;HostUI ui;rockey::vlp::PolicyStore store;unsigned revoked=0,pairs=0;
   rockey::vlp::Runtime device(pipe,random_bytes,1,ui,store,[&](const std::string&){++pairs;return false;},[]{return 1;},[&]{++revoked;ui.clear();},[]{return false;},[]{});
   delay(600000);device.poll();require(KeyStore::IsUnlocked(),"idle-locked");

@@ -40,7 +40,9 @@ enum class Status : uint8_t {
   kInvalidArg,
 };
 
+enum class BsvNetwork : uint8_t { Main = 0, Test = 1 };
 struct Info {
+  BsvNetwork bsvNetwork = BsvNetwork::Main;
   bool initialized = false;
   uint16_t pinDigits = ROCKEY_PIN_DEFAULT_DIGITS;
   uint32_t generation = 0;
@@ -55,7 +57,7 @@ class KeyStore {
 
   // 设置 PIN（首次设置或修改）。newPinDigits 只接受数字文本。
   static Status SetPinAndWrap(const char* pinDigits, size_t pinLen,
-                              const uint8_t priv[32]);
+                              const uint8_t priv[32], BsvNetwork network);
   // 解锁；成功后私钥只在本对象内短暂存在，Lock() 立即清零。
   static Status Unlock(const char* pinDigits, size_t pinLen);
   static void Lock();
@@ -101,7 +103,7 @@ class KeyStore {
  private:
   friend class rockey::vlp::ProvisionKeys;
   static Status LoadRecord(uint8_t* rec, size_t recCap, size_t* recLen);
-  static Status WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32], bool trustedMigration = false);
+  static Status WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32], BsvNetwork network, bool trustedMigration = false);
   static bool DeviceSecret(uint8_t out[32]);
 };
 

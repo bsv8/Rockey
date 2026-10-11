@@ -19,12 +19,14 @@ constexpr size_t kStateLen = 12;
 
 // 记录 payload：pubkey(33) salt(16) nonce(12) ct(32) tag(16) digits(1) = 110
 constexpr size_t kRecordPayloadLen = 33 + ROCKEY_KEYSTORE_SALT_LEN + ROCKEY_KEYSTORE_NONCE_LEN +
-                                     32 + ROCKEY_KEYSTORE_TAG_LEN + 1;
+                                     32 + ROCKEY_KEYSTORE_TAG_LEN + 2;
 constexpr size_t kSaltOff = 33;
 constexpr size_t kNonceOff = kSaltOff + ROCKEY_KEYSTORE_SALT_LEN;
 constexpr size_t kCtOff = kNonceOff + ROCKEY_KEYSTORE_NONCE_LEN;
 constexpr size_t kTagOff = kCtOff + 32;
 constexpr size_t kDigitsOff = kTagOff + ROCKEY_KEYSTORE_TAG_LEN;
+constexpr size_t kNetworkOff = kDigitsOff + 1;
+BsvNetwork g_network = BsvNetwork::Main;
 
 constexpr const char* kKdfInfo = "rockey:vault:v1";
 constexpr const char* kAadPrefix = "rockey:vault:v1|";
@@ -101,7 +103,7 @@ bool SaveState() {
 }
 
 void BuildAad(uint8_t out[], size_t* outLen, uint32_t generation, const uint8_t pub[33],
-              uint8_t digits) {
+              uint8_t digits, BsvNetwork network) {
   size_t prefix = strlen(kAadPrefix);
   memcpy(out, kAadPrefix, prefix);
   out[prefix] = ROCKEY_ENVELOPE_VERSION;
@@ -111,7 +113,8 @@ void BuildAad(uint8_t out[], size_t* outLen, uint32_t generation, const uint8_t 
   out[prefix + 4] = static_cast<uint8_t>(generation);
   memcpy(out + prefix + 5, pub, 33);
   out[prefix + 38] = digits;
-  *outLen = prefix + 39;
+  out[prefix + 39] = static_cast<uint8_t>(network);
+  *outLen = prefix + 40;
 }
 
 // 读出已存记录里的公钥（不触碰内存里的会话状态）。
@@ -187,6 +190,9 @@ Info KeyStore::Info_() {
       len == kRecordPayloadLen) {
     info.initialized = true;
     info.generation = gen;
+    if (rec[kNetworkOff] > 1) return info;
+    info.bsvNetwork = static_cast<BsvNetwork>(rec[kNetworkOff]);
+    g_network = info.bsvNetwork;
     info.pinDigits = rec[kDigitsOff];
     memcpy(info.pubkey, rec, 33);
     g_generation = gen;
@@ -199,7 +205,8 @@ Info KeyStore::Info_() {
 // Presence is distinct from validity: a corrupt envelope still prevents a new key.
 bool KeyStore::HasKey() { return store::Exists(store::kPathKey); }
 
-Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32], bool trustedMigration) {
+Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_t priv[32], BsvNetwork network, bool trustedMigration) {
+  if (static_cast<uint8_t>(network) > 1) return Status::kInvalidArg;
   if (!store::Init()) return Status::kIoError;
   uint8_t pub[33];
   if (!secp::PubkeyFromPriv(priv, pub)) return Status::kInvalidArg;
@@ -212,7 +219,7 @@ Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_
   const bool readable = ExistingPublicKey(existing);
   if (!readable && store::Exists(store::kPathKey)) return Status::kCorrupt;
   if (!readable && !trustedMigration && store::Exists("/vault/vlp-migration.bin")) return Status::kCorrupt;
-  if (readable && memcmp(existing, pub, 33) != 0) {
+  if (readable && (memcmp(existing, pub, 33) != 0 || Info_().bsvNetwork != network)) {
     RK_LOGW("keystore", "refusing to overwrite an existing key with a different key");
     return Status::kWrongKey;
   }
@@ -226,6 +233,7 @@ Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_
   rand::Fill(rec + kSaltOff, ROCKEY_KEYSTORE_SALT_LEN);
   rand::Fill(rec + kNonceOff, ROCKEY_KEYSTORE_NONCE_LEN);
   rec[kDigitsOff] = static_cast<uint8_t>(pinLen);
+  rec[kNetworkOff] = static_cast<uint8_t>(network);
 
   const uint32_t previousGen = Info_().generation;
   if (previousGen == UINT32_MAX) return Status::kIoError;
@@ -242,7 +250,7 @@ Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_
 
   uint8_t aad[64];
   size_t aadLen = 0;
-  BuildAad(aad, &aadLen, nextGen, pub, static_cast<uint8_t>(pinLen));
+  BuildAad(aad, &aadLen, nextGen, pub, static_cast<uint8_t>(pinLen), network);
 
   if (!aead::Seal(kek2.data(), rec + kNonceOff, aad, aadLen, priv, 32, rec + kCtOff,
                         rec + kTagOff)) {
@@ -254,19 +262,20 @@ Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_
                                &written);
   if (!ok) return Status::kIoError;
 
+  g_network = network;
   g_generation = written;
   g_digits = static_cast<uint16_t>(pinLen);
   memcpy(g_pub, pub, 33);
   return Status::kOk;
 }
 
-Status KeyStore::SetPinAndWrap(const char* pinDigits, size_t pinLen, const uint8_t priv[32]) {
+Status KeyStore::SetPinAndWrap(const char* pinDigits, size_t pinLen, const uint8_t priv[32], BsvNetwork network) {
   if (!pinDigits || !priv || pinLen < ROCKEY_PIN_MIN_DIGITS || pinLen > ROCKEY_PIN_MAX_DIGITS) return Status::kInvalidArg;
   for (size_t i = 0; i < pinLen; ++i) {
     if (pinDigits[i] < '0' || pinDigits[i] > '9') return Status::kInvalidArg;
   }
   if (!store::Init()) return Status::kIoError;
-  return WrapAndStore(pinDigits, pinLen, priv);
+  return WrapAndStore(pinDigits, pinLen, priv, network);
 }
 
 Status KeyStore::Unlock(const char* pinDigits, size_t pinLen) {
@@ -303,7 +312,8 @@ Status KeyStore::Unlock(const char* pinDigits, size_t pinLen) {
 
   uint8_t aad[64];
   size_t aadLen = 0;
-  BuildAad(aad, &aadLen, gen, rec, rec[kDigitsOff]);
+  if (rec[kNetworkOff] > 1) return Status::kCorrupt;
+  BuildAad(aad, &aadLen, gen, rec, rec[kDigitsOff], static_cast<BsvNetwork>(rec[kNetworkOff]));
 
   Status st = Status::kWrongPin;
   if (aead::Open(kek2.data(), rec + kNonceOff, aad, aadLen, rec + kCtOff, 32, rec + kTagOff,
@@ -311,6 +321,7 @@ Status KeyStore::Unlock(const char* pinDigits, size_t pinLen) {
     // 再核对公钥与私钥一致，防止记录被部分篡改
     uint8_t pub[33];
     if (secp::PubkeyFromPriv(g_priv.data(), pub) && memcmp(pub, rec, 33) == 0) {
+      g_network = static_cast<BsvNetwork>(rec[kNetworkOff]);
       st = Status::kOk;
     } else {
       g_priv.Clear();
@@ -344,7 +355,7 @@ Status KeyStore::ChangePin(const char* oldPin, size_t oldLen, const char* newPin
   if (authenticated != Status::kOk) return authenticated;
 
   // 用当前（已验证的）私钥重新封装，失败不破坏旧记录：WrapAndStore 走 tmp+rename
-  Status st = WrapAndStore(newPin, newLen, g_priv.data());
+  Status st = WrapAndStore(newPin, newLen, g_priv.data(), g_network);
   return st;
 }
 
@@ -419,7 +430,7 @@ bool KeyStore::Erase(bool preserveMigration) {
 //   code  = base32(16 字节硬件随机)                    —— 用户离线抄写
 //   key   = SHA256d("rockey:recovery:v1" || 0x00 || UTF8(code) || 0x00 || pubkey(33))
 //   nonce = 12 字节随机
-//   blob  = "RKB1" || version || pubkey(33) || nonce(12) || ct(32) || tag(16)
+//   blob  = "RKB1" || version(2) || pubkey(33) || nonce(12) || ct(32) || tag(16) || bsvNetwork(1)
 //
 // 安全边界（必须如实告知用户）：恢复码等价于私钥，任何拿到它的人都能恢复该 Key。
 // 这比"设备 + PIN"弱，界面与文档都要写清楚，不得包装成"更安全的备份"。
@@ -428,14 +439,15 @@ namespace {
 constexpr char kB32[] = "abcdefghijklmnopqrstuvwxyz234567";
 constexpr size_t kRecoveryCodeBytes = 16;
 constexpr size_t kRecoveryCodeChars = 26;
-constexpr size_t kRecoveryBlobLen = 4 + 1 + 33 + 12 + 32 + 16;
-// AAD = version(1) || 0x000000(3) || pubkey(33)：把备份与具体公钥绑定
-constexpr size_t kRecoveryAadLen = 1 + 3 + 33;
+constexpr size_t kRecoveryBlobLen = 4 + 1 + 33 + 12 + 32 + 16 + 1;
+// AAD = version(1) || 0x000000(3) || pubkey(33) || bsvNetwork(1)：备份绑定完整身份
+constexpr size_t kRecoveryAadLen = 1 + 3 + 33 + 1;
 
-void BuildRecoveryAad(const uint8_t pub[33], uint8_t out[kRecoveryAadLen]) {
-  out[0] = 1;
+void BuildRecoveryAad(const uint8_t pub[33], BsvNetwork network, uint8_t out[kRecoveryAadLen]) {
+  out[0] = 2;
   out[1] = out[2] = out[3] = 0;
   memcpy(out + 4, pub, 33);
+  out[37] = static_cast<uint8_t>(network);
 }
 
 void Base32Encode16(const uint8_t in[16], char* out /* 26 chars */) {
@@ -510,11 +522,12 @@ Status KeyStore::CreateRecoveryBackup(char* codeOut, size_t codeCap, uint8_t* ba
   rand::Fill(nonce, 12);
   static uint8_t blob[kRecoveryBlobLen];
   memcpy(blob, "RKB1", 4);
-  blob[4] = 1;
+  blob[4] = 2;
+  blob[98] = static_cast<uint8_t>(g_network);
   memcpy(blob + 5, g_pub, 33);
   memcpy(blob + 38, nonce, 12);
   uint8_t aad[kRecoveryAadLen];
-  BuildRecoveryAad(g_pub, aad);
+  BuildRecoveryAad(g_pub, g_network, aad);
   if (!aead::Seal(key, nonce, aad, kRecoveryAadLen, g_priv.data(), 32, blob + 50, blob + 82)) {
     secure::Wipe(key, sizeof(key));
     secure::Wipe(raw, sizeof(raw));
@@ -542,7 +555,7 @@ bool KeyStore::ReadRecoveryBackup(uint8_t* out, size_t cap, size_t* len) {
   size_t got = 0;
   if (!store::ReadRecord(store::kPathBackup, out, cap, &got, nullptr)) return false;
   if (got != kRecoveryBlobLen) return false;
-  if (memcmp(out, "RKB1", 4) != 0 || out[4] != 1) return false;
+  if (memcmp(out, "RKB1", 4) != 0 || out[4] != 2 || out[98] > 1) return false;
   if (len) *len = got;
   return true;
 }
@@ -550,13 +563,13 @@ bool KeyStore::ReadRecoveryBackup(uint8_t* out, size_t cap, size_t* len) {
 Status KeyStore::RestoreFromBackup(const char* code, const uint8_t* backup, size_t backupLen,
                                    const char* newPinDigits, size_t newPinLen) {
   if (!code || !backup) return Status::kInvalidArg;
-  if (backupLen != kRecoveryBlobLen || memcmp(backup, "RKB1", 4) != 0 || backup[4] != 1) {
+  if (backupLen != kRecoveryBlobLen || memcmp(backup, "RKB1", 4) != 0 || backup[4] != 2 || backup[98] > 1) {
     return Status::kCorrupt;
   }
   if (HasKey()) {
     // 已有 Key 时只允许恢复同一 Key，避免静默替换身份
     Info info = Info_();
-    if (memcmp(backup + 5, info.pubkey, 33) != 0) return Status::kWrongKey;
+    if (memcmp(backup + 5, info.pubkey, 33) != 0 || info.bsvNetwork != static_cast<BsvNetwork>(backup[98])) return Status::kWrongKey;
   }
   uint8_t raw[kRecoveryCodeBytes];
   if (!Base32Decode16(code, strlen(code), raw)) return Status::kInvalidArg;
@@ -564,7 +577,7 @@ Status KeyStore::RestoreFromBackup(const char* code, const uint8_t* backup, size
   RecoveryKey(code, backup + 5, key);
   static uint8_t priv[32];
   uint8_t aad[kRecoveryAadLen];
-  BuildRecoveryAad(backup + 5, aad);
+  BuildRecoveryAad(backup + 5, static_cast<BsvNetwork>(backup[98]), aad);
   bool ok = aead::Open(key, backup + 38, aad, kRecoveryAadLen, backup + 50, 32, backup + 82, priv);
   secure::Wipe(key, sizeof(key));
   secure::Wipe(raw, sizeof(raw));
@@ -577,7 +590,7 @@ Status KeyStore::RestoreFromBackup(const char* code, const uint8_t* backup, size
     secure::Wipe(priv, sizeof(priv));
     return Status::kCorrupt;
   }
-  Status st = WrapAndStore(newPinDigits, newPinLen, priv);
+  Status st = WrapAndStore(newPinDigits, newPinLen, priv, static_cast<BsvNetwork>(backup[98]));
   secure::Wipe(priv, sizeof(priv));
   if (st != Status::kOk) return st;
   // 恢复成功后清除设备上的旧备份材料，避免旧密文残留
@@ -594,7 +607,7 @@ Status KeyStore::DevInjectTestKey(const char* pinDigits, size_t pinLen) {
       0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
       0x77, 0x88, 0x99, 0x77};
   if (!secp::ValidatePriv(kDevTestPriv)) return Status::kInvalidArg;
-  return SetPinAndWrap(pinDigits, pinLen, kDevTestPriv);
+  return SetPinAndWrap(pinDigits, pinLen, kDevTestPriv, BsvNetwork::Test);
 }
 #endif
 

@@ -25,7 +25,7 @@ int main(){try{
   using rockey::keystore::KeyStore;using rockey::keystore::Status;using vaultlink::require;
   require(rockey::store::Init()&&KeyStore::Init(),"storage-init");
   uint8_t key[32]{};key[31]=1;
-  require(KeyStore::SetPinAndWrap("12345678",8,key)==Status::kOk&&KeyStore::Unlock("12345678",8)==Status::kOk,"host-key-init");
+  require(KeyStore::SetPinAndWrap("12345678",8,key, rockey::keystore::BsvNetwork::Main)==Status::kOk&&KeyStore::Unlock("12345678",8)==Status::kOk,"host-key-init");
   rockey::Display::Init();rockey::Buttons buttons;buttons.Init({});rockey::vlp::Controller controller(buttons);
   rockey::sound::player=rockey::sound::Player(observe_sound);
   signal(SIGUSR2,press_middle);fcntl(0,F_SETFL,fcntl(0,F_GETFL)|O_NONBLOCK);

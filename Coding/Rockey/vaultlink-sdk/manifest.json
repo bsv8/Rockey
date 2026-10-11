@@ -15,9 +15,9 @@
     "device/sdk/feepool.hpp": "1366b4f7843d75478436b9ef6b482b15cedef085fec46ba147300fdedbf70144",
     "device/sdk/fragments.hpp": "6b743e1f0db7e8db4194da9836e7d64e7e119ff27e609389547909955be14048",
     "device/sdk/local_secret.hpp": "ff44734c3b3fcbd686f542655be75c357426d722347f749dcb05c3dd0ecccee1",
-    "device/sdk/policy.hpp": "5d0f0758e698e27a404ce4fe823fbfe2e879ceb9edd36d8a2224679e79308c28",
+    "device/sdk/policy.hpp": "e9f5dd53a3c1ec8726db3c01d3cc4d7bdeba59b0a1f180ef0c422b93f681765c",
     "device/sdk/standard.hpp": "2010efa193e0b4dc9e8e9f585eb3e3cf645c4c67a87d31dfca78a6965a5d30df",
-    "device/sdk/connect_envelope.hpp": "af1ea5532105f8902d902a70c5915fa25743b0f41e8a6496d025a90d979c3726",
+    "device/sdk/connect_envelope.hpp": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb",
     "device/jcs_test.cpp": "234ebf380c298eab4dba4ec5ab784799a57c2d84fcaf9cd37fa952433f1ad7ae",
     "device/sdk/channel.hpp": "6ab5316ad21d34e6a7e0c4225384375422c92145ef308109f1d34e4846779dd9",
     "device/sdk/jcs.hpp": "bbbc6e4988b0ff00eaf2300de0de9594ccec852cc69d1c512a84e85db54cf021",
@@ -52,9 +52,23 @@
     "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a"
   },
   "sourceOverrides": {
-    "reason": "统一握手阶段 60 秒等待，sourceCommit 之后的工作区修正",
+    "reason": "\u7edf\u4e00\u63e1\u624b\u9636\u6bb5 60 \u79d2\u7b49\u5f85\uff0csourceCommit \u4e4b\u540e\u7684\u5de5\u4f5c\u533a\u4fee\u6b63",
     "files": {
       "device/sdk/endpoint.hpp": "1cfc6cbc464403c12c25131bd482af0ae6fada7fb779bf9fbac2c4ab87a38323"
+    }
+  },
+  "sourceOverlay": {
+    "reason": "NetworkIdentity: immutable BSV network and signed Connect v2 envelope",
+    "sourceDirectory": "/Users/david/Workspaces/BSV8_VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol",
+    "files": {
+      "device/sdk/connect_envelope.hpp": {
+        "baseSha256": "af1ea5532105f8902d902a70c5915fa25743b0f41e8a6496d025a90d979c3726",
+        "sha256": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb"
+      },
+      "device/sdk/policy.hpp": {
+        "baseSha256": "5d0f0758e698e27a404ce4fe823fbfe2e879ceb9edd36d8a2224679e79308c28",
+        "sha256": "e9f5dd53a3c1ec8726db3c01d3cc4d7bdeba59b0a1f180ef0c422b93f681765c"
+      }
     }
   }
 }

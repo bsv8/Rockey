@@ -10,11 +10,14 @@ namespace rockey::vlp {
 class ProvisionKeys {
   secure::SecretBytes<ROCKEY_PIN_MAX_DIGITS+1> pin;
   size_t length=0;
+  keystore::BsvNetwork network_=keystore::BsvNetwork::Main;
  public:
   void clear(){pin.Clear();length=0;}
+  keystore::BsvNetwork network()const{return network_;}
   bool ready()const{return length!=0;}
   size_t digits()const{return length;}
-  void arm(const char* p,size_t n){
+  void arm(const char* p,size_t n,keystore::BsvNetwork network){
+    network_=network;
     clear();vaultlink::require(!keystore::KeyStore::HasKey()&&p&&n>=ROCKEY_PIN_MIN_DIGITS&&n<=ROCKEY_PIN_MAX_DIGITS,"migration-conflict");
     for(size_t i=0;i<n;++i)vaultlink::require(p[i]>='0'&&p[i]<='9',"invalid-pin");
     memcpy(pin.data(),p,n);length=n;
@@ -35,7 +38,7 @@ class ProvisionKeys {
     MigrationStore disk;MigrationJournal journal(disk);
     require(encode(journal.status(),1024)==encode(record,1024),"migration-conflict");
     PolicyStore policy;policy.save(bank);
-    const auto result=K::WrapAndStore(reinterpret_cast<const char*>(pin.data()),length,secret.data(),true);
+    const auto result=K::WrapAndStore(reinterpret_cast<const char*>(pin.data()),length,secret.data(),network_,true);
     require(result==keystore::Status::kOk,"import-key-store-failed");
     const auto verified=K::Unlock(reinterpret_cast<const char*>(pin.data()),length);
     clear();require(verified==keystore::Status::kOk,"import-key-verification-failed");

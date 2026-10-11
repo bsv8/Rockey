@@ -33,7 +33,7 @@ class HostPinUI final:public rockey::vlp::ApprovalUI {
 int main(int argc,char** argv){try {
   using rockey::keystore::KeyStore;using rockey::keystore::Status;
   require(rockey::store::Init()&&KeyStore::Init(),"storage-init");Bytes secret(32);secret[31]=1;
-  require(KeyStore::SetPinAndWrap("12345678",8,secret.data())==Status::kOk&&KeyStore::Unlock("12345678",8)==Status::kOk,"key-init");wipe_bytes(secret);
+  require(KeyStore::SetPinAndWrap("12345678",8,secret.data(), rockey::keystore::BsvNetwork::Main)==Status::kOk&&KeyStore::Unlock("12345678",8)==Status::kOk,"key-init");wipe_bytes(secret);
   Pipe pipe;HostPinUI ui;rockey::vlp::PolicyStore policy;
   auto initialized=KeyStore::Info_();
   policy.save(encode(obj({{"version",uint64_t(2)},{"key",to_hex(Bytes(initialized.pubkey,initialized.pubkey+33))},

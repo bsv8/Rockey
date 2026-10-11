@@ -336,11 +336,16 @@ void App::Loop() {
 // ── 输入分发 ───────────────────────────────────────────────────────
 void App::OnButton(Btn btn, BtnEvent ev) {
   switch (screen_) {
+    case Screen::kNetworkChoice:
+      if(ev!=BtnEvent::kShortPress)return;
+      if(btn==Btn::kC){ResetPinEntry();Go(Screen::kSetPin);return;}
+      newKeyNetwork_ = btn==Btn::kB ? keystore::BsvNetwork::Test : keystore::BsvNetwork::Main;
+      Go(Screen::kInitializeChoice);return;
     case Screen::kInitializeChoice:
       if(ev!=BtnEvent::kShortPress)return;
       if(btn==Btn::kC){secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;ResetPinEntry();Go(Screen::kSetPin);return;}
       if(btn==Btn::kB){
-        try{vaultlink_->arm_import(newPin_,newPinLen_);secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;Go(Screen::kImport);}
+        try{vaultlink_->arm_import(newPin_,newPinLen_,newKeyNetwork_);secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;Go(Screen::kImport);}
         catch(...){secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;ShowErrorScreen(ops::ErrorCode::kMigrationConflict);}return;
       }
       if(btn==Btn::kA){
@@ -349,7 +354,7 @@ void App::OnButton(Btn btn, BtnEvent ev) {
         // retry a different key after a successful write or failed verification.
         secure::SecretBytes<32> secret;bool valid=false;
         for(int i=0;i<8&&!valid;++i){rand::Fill(secret.data(),32);valid=secp::ValidatePriv(secret.data());}
-        auto st=valid?keystore::KeyStore::SetPinAndWrap(newPin_,newPinLen_,secret.data()):keystore::Status::kInvalidArg;
+        auto st=valid?keystore::KeyStore::SetPinAndWrap(newPin_,newPinLen_,secret.data(),newKeyNetwork_):keystore::Status::kInvalidArg;
         if(st==keystore::Status::kOk)st=keystore::KeyStore::Unlock(newPin_,newPinLen_);
         secure::Wipe(newPin_,sizeof(newPin_));newPinLen_=0;
         if(st==keystore::Status::kOk)Go(Screen::kMenu);else ShowErrorScreen(ops::ErrorCode::kMigrationConflict);
@@ -646,7 +651,7 @@ void App::HandleSetPinInput(Btn btn, BtnEvent ev) {
                 break;
               }
               // The repeated PIN stays only in RAM until the local choice.
-              ResetPinEntry();Go(Screen::kInitializeChoice);break;
+              ResetPinEntry();Go(Screen::kNetworkChoice);break;
             }
             // 不一致：重新开始
             secure::Wipe(newPin_, sizeof(newPin_));
@@ -1202,6 +1207,10 @@ void App::Draw() {
     case Screen::kLock: DrawLock(); break;
     case Screen::kSetPin:
     case Screen::kSetPinConfirm: DrawSetPin(); break;
+    case Screen::kNetworkChoice:
+      ui::DrawHeader("BSV Network",nullptr);
+      ui::DrawNotice("Network is fixed for this key",color::kWhite);
+      ui::DrawFooter("Mainnet","Testnet",i18n::T(i18n::Str::kCancel));break;
     case Screen::kInitializeChoice:
       ui::DrawHeader(i18n::T(i18n::Str::kInitializeChoice),nullptr);
       ui::DrawFooter(store::Exists("/vault/vlp-migration.bin")?nullptr:i18n::T(i18n::Str::kInitializeNew),i18n::T(i18n::Str::kImportTitle),i18n::T(i18n::Str::kCancel));break;

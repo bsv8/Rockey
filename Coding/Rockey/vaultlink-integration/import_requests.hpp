@@ -26,7 +26,8 @@ class ImportRequests {
     struct Validation final:Store {Bytes bytes;explicit Validation(Bytes b):bytes(std::move(b)){}Bytes load()override{return bytes;}void save(const Bytes& b)override{require(b==bytes,"non-canonical-import-policy");}} validation(bank);
     auto source=decode(bank,65536);require(source.at("version").integer()==2||source.at("version").integer()==3,"unsupported-policy-version");
     for(const auto& p:source.at("pending").array)require(p.at("state").string()!="reserved","migration-payment-busy");
-    Policy policy(validation,to_hex(record.at("publicKey").binary(33)),sha256);return bank;
+    const auto network=keys&&keys->ready()?keys->network():keystore::KeyStore::Info_().bsvNetwork;
+    Policy policy(validation,to_hex(record.at("publicKey").binary(33)),sha256,network==keystore::BsvNetwork::Test?"test":"main");return bank;
   }
   class Action final:public vaultlink::Operation {
     ApprovalUI* ui;Review review;std::function<Value()> run;bool started=false,finished=false;Approval answer;

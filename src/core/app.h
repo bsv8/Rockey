@@ -25,6 +25,7 @@ class App {
     kLock,
     kSetPin,
     kSetPinConfirm,
+    kNetworkChoice,
     kInitializeChoice,
     kImport,
     kWaitPin,
@@ -140,6 +141,7 @@ class App {
   bool pinRowDrawn_ = false;
   uint8_t drawnPinLen_ = 0;
   uint8_t drawnPinDigit_ = 0;
+  keystore::BsvNetwork newKeyNetwork_ = keystore::BsvNetwork::Main;
   char newPin_[ROCKEY_PIN_MAX_DIGITS + 1] = {0};
   uint8_t newPinLen_ = 0;
   bool changingPin_ = false;

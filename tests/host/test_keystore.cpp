@@ -99,7 +99,7 @@ int main() {
   Check(!KeyStore::HasKey(), "no key on a fresh device");
 
   Begin("keystore/set-pin");
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA) == Status::kOk, "first set PIN + wrap");
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA, rockey::keystore::BsvNetwork::Main) == Status::kOk, "first set PIN + wrap");
   Check(KeyStore::HasKey(), "key present after setup");
 
   char hexA[67];
@@ -109,10 +109,14 @@ int main() {
   Check(strlen(hexA) == 66 && strlen(hexB) == 66, "both fixtures derive to real pubkeys");
   Check(strcmp(hexA, hexB) != 0, "fixtures are different keys");
 
+  Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Main, "created identity has main network");
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA, rockey::keystore::BsvNetwork::Test) == Status::kWrongKey,
+        "same private key cannot replace its identity network");
+  Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Main, "rejected network change preserves original identity");
   Begin("keystore/refuse-different-key");
   // R2：已有 Key 时拒绝不同 Key 覆盖 —— 换 Key 必须显式擦除设备。
   // 少了这道检查，任何调用方（含 UI 与迁移流程）都能静默替换设备身份。
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB) == Status::kWrongKey,
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB, rockey::keystore::BsvNetwork::Main) == Status::kWrongKey,
         "different key is refused while a key exists");
   {
     rockey::keystore::Info info = KeyStore::Info_();
@@ -217,7 +221,7 @@ int main() {
   Check(KeyStore::Erase(), "already-erased device removal is idempotent");
   Check(!KeyStore::HasKey(), "erased again");
   // 显式擦除之后才允许写入另一把 Key
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB) == Status::kOk,
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB, rockey::keystore::BsvNetwork::Main) == Status::kOk,
         "a different key is allowed only after an explicit erase");
   DrainPinWait();
   Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk, "the new key unlocks");
@@ -267,7 +271,7 @@ int main() {
   auto brokenKey = envelope; brokenKey.back() ^= 1; rewrite(rockey::store::kPathKey, brokenKey);
   Check(KeyStore::HasKey(), "corrupt envelope remains an existing key");
   Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kCorrupt && !KeyStore::IsUnlocked(), "corrupt envelope never appears as uninitialized");
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA) == Status::kCorrupt, "corrupt key cannot be overwritten by a new identity");
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA, rockey::keystore::BsvNetwork::Main) == Status::kCorrupt, "corrupt key cannot be overwritten by a new identity");
   rewrite(rockey::store::kPathKey, envelope);
   File state = LittleFS.open(rockey::store::kPathState, "r");
   std::vector<uint8_t> attempts(state.size()); state.read(attempts.data(), attempts.size()); state.close();
@@ -275,7 +279,7 @@ int main() {
   Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kIoError && KeyStore::PrivateKey() == nullptr,
         "corrupt PIN state blocks unlock instead of resetting attempts");
   Check(KeyStore::Erase(), "only explicit device erase removes corrupt persistent state");
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB) == Status::kOk
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivB, rockey::keystore::BsvNetwork::Main) == Status::kOk
         && KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk, "explicit erase restores a valid fresh setup");
   KeyStore::Lock();
 
@@ -293,10 +297,10 @@ int main() {
   std::vector<uint8_t> recovered(1024);size_t progressSize=0;
   Check(rockey::store::ReadRecord("/vault/vlp-migration.bin",recovered.data(),recovered.size(),&progressSize,nullptr)
     && progressSize==publicRecord.size()&&std::equal(publicRecord.begin(),publicRecord.end(),recovered.begin()),"recovery progress survives key erase exactly");
-  Check(KeyStore::SetPinAndWrap(kPin,strlen(kPin),kPrivA)==Status::kCorrupt,"pending erased migration cannot become a fresh wallet");
+  Check(KeyStore::SetPinAndWrap(kPin,strlen(kPin),kPrivA, rockey::keystore::BsvNetwork::Main)==Status::kCorrupt,"pending erased migration cannot become a fresh wallet");
   Check(KeyStore::Erase()&&!rockey::store::Exists("/vault/vlp-migration.bin"),"independent explicit reset removes recovery state before a different identity");
   Begin("keystore/three-button-private-operation-reauthentication");
-  Check(KeyStore::SetPinAndWrap(kPin,strlen(kPin),kPrivB)==Status::kOk
+  Check(KeyStore::SetPinAndWrap(kPin,strlen(kPin),kPrivB, rockey::keystore::BsvNetwork::Main)==Status::kOk
     && KeyStore::Unlock(kPin,strlen(kPin))==Status::kOk,"set up actual KeyStore for reauthentication");
   rockey::vlp::PinReauthentication physicalPin;
   Check(physicalPin.begin()&&!physicalPin.verified()&&physicalPin.required()==strlen(kPin),"new physical PIN entry never inherits a prior approval");
@@ -401,7 +405,7 @@ int main() {
   Begin("keystore/device-local-import-pin");
   Check(KeyStore::Erase(),"start import PIN test only after explicit reset");
   rockey::vlp::ProvisionKeys provisional;
-  provisional.arm(kPin,strlen(kPin));
+  provisional.arm(kPin,strlen(kPin),rockey::keystore::BsvNetwork::Main);
   Check(provisional.ready()&&!KeyStore::HasKey(),"new import PIN is device-local and does not create a key");
   rockey::vlp::PinReauthentication repeated;
   Check(repeated.begin_local(provisional.digits(),[&](const char* p,size_t n){return provisional.authenticate(p,n,millis());}),"import re-entry uses the real PIN model");
@@ -409,7 +413,7 @@ int main() {
   Check(!repeated.verified()&&!provisional.ready()&&KeyStore::FailCount()==1&&!KeyStore::HasKey(),"wrong import PIN is durably counted, clears setup PIN and cannot create key");
   auto wait=KeyStore::WaitMsRemaining(millis());
   Check(wait>0,"wrong import PIN starts actual persistent wait gate");
-  provisional.arm(kPin,strlen(kPin));
+  provisional.arm(kPin,strlen(kPin),rockey::keystore::BsvNetwork::Main);
   Check(!provisional.authenticate(kPin,strlen(kPin),millis())&&KeyStore::FailCount()==1,"correct PIN cannot bypass the wait gate by re-arming import");
   delay(wait+1);
   Check(provisional.authenticate(kPin,strlen(kPin),millis())&&KeyStore::FailCount()==0,"only correct local PIN after waiting clears the persistent counter");
@@ -419,6 +423,18 @@ int main() {
   Check(KeyStore::PrivateKey()==nullptr,"boot KAT begins with actual KeyStore locked");
   Check(rockey::ops::SelfTest(),"local-secret KAT uses public vector while wallet is locked");
   Check(!KeyStore::IsUnlocked()&&KeyStore::PrivateKey()==nullptr,"boot KAT never unlocks the user wallet");
+  Begin("keystore/test-network-identity");
+  Check(KeyStore::Erase(), "explicit reset before creating a test identity");
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPrivA, rockey::keystore::BsvNetwork::Test) == Status::kOk, "create test identity with the same private key");
+  Check(KeyStore::Init() && KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk, "test identity survives reboot and unlock");
+  Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "reboot retains test network");
+  Check(KeyStore::ChangePin(kPin, strlen(kPin), kPin2, strlen(kPin2)) == Status::kOk, "change test identity PIN");
+  Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "PIN change retains test network");
+  char testCode[64] = {0}; uint8_t testBackup[256] = {0}; size_t testBackupLen = sizeof(testBackup);
+  Check(KeyStore::CreateRecoveryBackup(testCode, sizeof(testCode), testBackup, &testBackupLen) == Status::kOk, "create authenticated test identity backup");
+  Check(KeyStore::Erase(), "erase before restoring test identity");
+  Check(KeyStore::RestoreFromBackup(testCode, testBackup, testBackupLen, kPin, strlen(kPin)) == Status::kOk, "restore authenticated test identity backup");
+  Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk && KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "restored identity retains network plus private key");
   printf("\n%d passed, %d failed\n", g_pass, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

@@ -30,6 +30,7 @@ class MigrationRequests {
     }
   }
   vaultlink::Prepared prepare(const std::string& op,const vaultlink::Value& body,const vaultlink::Bytes& hash) {
+    if(op=="identity.network")return payments.prepare(op,body,hash);
     if(op=="migration.status") {
       body.fields({});vaultlink::require(vaultlink::commitment("key-migration-status",body)==hash,"invalid-commitment");
       return {"key-migration-status",body,std::make_unique<Status>(journal)};

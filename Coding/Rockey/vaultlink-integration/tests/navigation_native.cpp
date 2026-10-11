@@ -26,7 +26,7 @@ struct NavigationProbe {
   static void check(){
     using vaultlink::require;using keystore::KeyStore;
     require(store::Init()&&KeyStore::Init(),"storage-init");uint8_t key[32]{};key[31]=1;
-    require(KeyStore::SetPinAndWrap("12345678",8,key)==keystore::Status::kOk&&KeyStore::Unlock("12345678",8)==keystore::Status::kOk,"key-init");
+    require(KeyStore::SetPinAndWrap("12345678",8,key, rockey::keystore::BsvNetwork::Main)==keystore::Status::kOk&&KeyStore::Unlock("12345678",8)==keystore::Status::kOk,"key-init");
     App app;app.buttons_.Init({});app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
     Display::Init();app.Go(App::Screen::kMenu);app.DrawMenu();
     require(app.menu_.count==10,"menu-count");

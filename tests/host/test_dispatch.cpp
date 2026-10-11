@@ -195,7 +195,7 @@ int main() {
 
   Begin("dispatch/setup");
   Check(KeyStore::Init(), "keystore init");
-  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPriv) == Status::kOk, "set PIN + wrap");
+  Check(KeyStore::SetPinAndWrap(kPin, strlen(kPin), kPriv, rockey::keystore::BsvNetwork::Main) == Status::kOk, "set PIN + wrap");
   DrainPinWait();
   Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk, "unlock");
 

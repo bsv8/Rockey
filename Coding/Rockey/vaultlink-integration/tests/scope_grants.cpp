@@ -21,7 +21,7 @@ class HostDecision final:public ApprovalUI {
 int rng(void *,unsigned char *out,size_t n){std::ifstream f("/dev/urandom",std::ios::binary);f.read(reinterpret_cast<char *>(out),n);return f?0:-1;}
 int main(int argc,char **argv){try{
  require(argc==2,"path-required");Disk store(argv[1]);Bytes secret(32);secret[31]=1;IdentityKey key(secret,rng);wipe_bytes(secret);
- HostDecision ui;PaymentService service(key,store,ui);
+ HostDecision ui;PaymentService service(key,store,ui,"main");
  auto body=[](const std::string &scope){return obj({{"scope",scope},{"plaintext",Bytes(32,7)}});};
  auto prepare=[&](const std::string &op,const Value &b){return service.prepare(op,b,commitment("local-secret-v3",b));};
  auto run=[&](const std::string &op,const Value &b){auto p=prepare(op,b);require(p.operation->ready(),"not-ready");return p.operation->allowed()?p.operation->execute():obj({{"error","denied"}});};

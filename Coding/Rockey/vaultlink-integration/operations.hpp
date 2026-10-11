@@ -14,9 +14,18 @@
 namespace rockey::vlp {
 class PaymentService {
   vaultlink::IdentityKey &key;
+  const std::string network;
   vaultlink::Policy policy;
   ApprovalUI &ui;
   ScopeGrants grants;
+  class IdentityQuery final:public vaultlink::Operation {
+    PaymentService& service;
+   public:
+    explicit IdentityQuery(PaymentService& s):service(s){}
+    bool ready() override{return true;}
+    bool allowed() override{return true;}
+    vaultlink::Value execute() override{return vaultlink::obj({{"bsvNetwork",service.network},{"publicKey",service.key.public_key()}});}
+  };
   class Action final : public vaultlink::Operation {
     ApprovalUI &ui;
     bool prompt, finished = false, started = false;
@@ -61,8 +70,8 @@ class PaymentService {
     return policy.channel_view(id);
   }
  public:
-  PaymentService(vaultlink::IdentityKey &k, vaultlink::Store &store, ApprovalUI &u)
-      : key(k), policy(store, vaultlink::to_hex(k.public_key()),vaultlink::sha256), ui(u) {}
+  PaymentService(vaultlink::IdentityKey &k, vaultlink::Store &store, ApprovalUI &u, std::string bsvNetwork)
+      : key(k), network(std::move(bsvNetwork)), policy(store, vaultlink::to_hex(k.public_key()),vaultlink::sha256,network), ui(u) {vaultlink::require(network=="main"||network=="test","network-identity-required");}
   size_t grant_count() const{return grants.count();}
   ScopeGrants::Entry grant(size_t i) const{return grants.get(i);}
   void cancel_grant(size_t i){grants.cancel(i);}
@@ -73,6 +82,7 @@ class PaymentService {
   vaultlink::Prepared prepare(const std::string &op, const vaultlink::Value &body,
                              const vaultlink::Bytes &hash) {
     using namespace vaultlink;
+    if(op=="identity.network"){body.fields({});require(commitment("identity-network",body)==hash,"invalid-commitment");return {"identity-network",body,std::make_unique<IdentityQuery>(*this)};}
     if(op=="bitfs.wire-sign") {
       require(commitment("bitfs-wire-document",body)==hash,"invalid-commitment");auto checked=inspect_bitfs_wire(body,key.public_key());
       require(checked.kind!=5,"payment-context-required");
@@ -135,7 +145,7 @@ class PaymentService {
     if(op=="connect.identity-sign"||op=="connect.intent-sign") {
       const bool identity=op=="connect.identity-sign";
       const std::string profile=identity?"connect-identity-envelope":"connect-intent-envelope";
-      auto checked=inspect_connect(identity?"identity":"intent",body,key.public_key());
+      auto checked=inspect_connect(identity?"identity":"intent",body,key.public_key(),network);
       require(commitment(profile,body)==hash,"invalid-commitment");
       Review r{op,"","",{{"operation",op},{"audience",checked.audience},{"requestId",checked.request},
         {"issuedAt",std::to_string(checked.issued)},{"expiresAt",std::to_string(checked.expires)},
@@ -144,7 +154,7 @@ class PaymentService {
       else {r.facts.push_back({"contentType",checked.content_type});r.facts.push_back({"contentLength",std::to_string(checked.content_length)});r.facts.push_back({"contentHash",to_hex(checked.content_digest)});}
       // One physical decision per envelope; no persistent or session-wide identity approval.
       return {profile,body,std::make_unique<Action>(ui,r,true,[this,body,identity](const Approval &){
-        auto current=inspect_connect(identity?"identity":"intent",body,key.public_key());
+        auto current=inspect_connect(identity?"identity":"intent",body,key.public_key(),network);
         return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
       })};
     }
@@ -176,7 +186,7 @@ class PaymentService {
     if (op == "payment.configure") {
       body.fields({"id", "owner", "kind", "network", "paymentType", "enabled", "singleLimit", "defaultSessionLimit", "revision"});
       auto payment_type=body.at("paymentType").string();
-      require(body.at("network").string() == "main" && (payment_type == "p2pkh" || payment_type == "feepool.connect" || payment_type == "feepool.bitfs" || payment_type == "bsv.standard" || payment_type == "feepool.bitfs.cosigner" || payment_type == "feepool.connect.cosigner"), "unsupported");
+      require(body.at("network").string() == (network) && (payment_type == "p2pkh" || payment_type == "feepool.connect" || payment_type == "feepool.bitfs" || payment_type == "bsv.standard" || payment_type == "feepool.bitfs.cosigner" || payment_type == "feepool.connect.cosigner"), "unsupported");
       Channel c{body.at("id").string(), body.at("owner").string(), body.at("singleLimit").integer(),
                 body.at("defaultSessionLimit").integer(), body.at("revision").integer(),
                 body.at("enabled").flag(), body.at("kind").string(), payment_type};

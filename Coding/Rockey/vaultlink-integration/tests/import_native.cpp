@@ -39,7 +39,7 @@ int main(int argc,char** argv){try {
   using rockey::keystore::KeyStore;using rockey::keystore::Status;
   require(argc==1||(argc==6&&(std::string(argv[1])=="import-staged"||std::string(argv[1])=="key-wrapped"||std::string(argv[1])=="device-committed")),"invalid-fixture");
   require(rockey::store::Init()&&KeyStore::Init(),"storage-init");
-  rockey::vlp::ProvisionKeys keys;keys.arm("12345678",8);Pipe pipe;HostPinUI ui(keys);
+  rockey::vlp::ProvisionKeys keys;keys.arm("12345678",8,rockey::keystore::BsvNetwork::Main);Pipe pipe;HostPinUI ui(keys);
   // Explicit host button adapter: tests can withhold device approval and
   // verify the displayed pairing request before approving the browser.
   const bool manualPair=getenv("ROCKEY_HOST_MANUAL_PAIR")!=nullptr;

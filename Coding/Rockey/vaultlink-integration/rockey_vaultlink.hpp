@@ -17,6 +17,18 @@
 #include <memory>
 
 namespace rockey::vlp {
+class NetworkIdentityQuery final : public vaultlink::Operation {
+ public:
+  bool ready() override { return true; }
+  bool allowed() override { return keystore::KeyStore::IsUnlocked(); }
+  vaultlink::Value execute() override {
+    using namespace vaultlink;
+    require(keystore::KeyStore::IsUnlocked(),"locked");
+    auto info=keystore::KeyStore::Info_();require(info.initialized,"network-identity-required");
+    return obj({{"bsvNetwork",info.bsvNetwork==keystore::BsvNetwork::Test?"test":"main"},{"publicKey",Bytes(info.pubkey,info.pubkey+33)}});
+  }
+};
+
 inline constexpr const char* sdk_version = "0.2.0-draft.1";
 inline constexpr uint8_t wire_version = 2;
 
@@ -38,7 +50,7 @@ class Runtime final {
     try { identity_ = std::make_unique<vaultlink::IdentityKey>(temporary, rng); }
     catch (...) { secure::Wipe(temporary.data(), temporary.size()); throw; }
     secure::Wipe(temporary.data(), temporary.size());
-    payments_ = std::make_unique<PaymentService>(*identity_, store, ui);
+    payments_ = std::make_unique<PaymentService>(*identity_, store, ui,keystore::KeyStore::Info_().bsvNetwork==keystore::BsvNetwork::Test?"test":"main");
     migration_ = std::make_unique<vaultlink::MigrationJournal>(migration_store_);
     migration_keys_=std::make_unique<KeyStoreMigrationKeys>(identity_->public_key(),std::move(exportArmed),std::move(disarmExport),
       [this]{identity_->lock();});
@@ -48,6 +60,10 @@ class Runtime final {
     migration_requests_=std::make_unique<MigrationRequests>(*payments_,*migration_,identity_->public_key(),migration_private_.get());
     endpoint_ = std::make_unique<vaultlink::Endpoint>(transport, *identity_, rng, run,
       [this](const std::string& op, const vaultlink::Value& body, const vaultlink::Bytes& hash) {
+        if(op=="identity.network") {
+          body.fields({});vaultlink::require(vaultlink::commitment("identity-network",body)==hash,"invalid-commitment");
+          return vaultlink::Prepared{"identity-network",body,std::make_unique<NetworkIdentityQuery>()};
+        }
         if(op.rfind("migration.import-",0)==0)return import_requests_->prepare(op,body,hash);
         return migration_requests_->prepare(op,body,hash);
       },
