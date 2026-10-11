@@ -221,13 +221,20 @@ class Controller final : public ApprovalUI {
     ui::SetBrowserConnected(connected_);
     if(!importing_&&!erased&&!keystore::KeyStore::IsUnlocked()){lock();return;}
     if (!visible) return;
+    // Keep the pairing page until the possession proof completes. PAIR_OK
+    // alone is not a connected session; closing early redraws the menu again
+    // when Endpoint moves through stage 2 and finally becomes connected.
+    if(pairing&&pair_answer>0){
+      if(connected_)clear();
+      return;
+    }
     if(entering_pin){if(redraw)draw();return;}
     bool read = lines.size() <= 6 || furthest + 6 >= lines.size();
     hold.Update(buttons, ::millis(), read);
     if (hold.Fired()) {
       if (pairing) {
-        pair_answer = 1; connected_=true;visible = false; hold.Reset(); buttons.ArmReleaseGate();
-        // 确认后等待 Endpoint 发送 PAIR_OK，不能重画已经关闭的核对页。
+        pair_answer = 1; draw_progress(100); hold.Reset(); buttons.ArmReleaseGate();
+        // 等待 PAIR_OK 和持有权证明完成后，一次性返回主页面。
         return;
       }
       else {
@@ -243,6 +250,7 @@ class Controller final : public ApprovalUI {
   }
   bool button(Btn b, BtnEvent event) {
     if (!visible) return false;
+    if(pairing&&pair_answer>0)return true;
     if(entering_pin) {
       if(b==Btn::kA&&event==BtnEvent::kLongPress) {
         pin.clear();entering_pin=false;answer.state=Approval::Denied;if(review.creates_pin)provision_keys.clear();redraw=true;return true;

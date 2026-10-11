@@ -6,13 +6,16 @@
 #include <vector>
 SerialStub Serial;EspClass ESP;
 static std::vector<uint16_t> soundOutput;
+static vaultlink::Bytes serialInput,serialOutput;
+static size_t serialPosition=0;
+static bool middleDown=false;
 static void observeSound(uint16_t frequency){soundOutput.push_back(frequency);}
-void pinMode(uint8_t,uint8_t){}int digitalRead(uint8_t){return HIGH;}
+void pinMode(uint8_t,uint8_t){}int digitalRead(uint8_t pin){return middleDown&&pin==rockey::Board::kPinBtnB?LOW:HIGH;}
 void SerialStub::begin(unsigned long){}size_t SerialStub::setRxBufferSize(size_t n){return n;}
 bool SerialStub::setRxFIFOFull(uint8_t){return true;}
-int SerialStub::available(){return 0;}int SerialStub::read(){return -1;}
+int SerialStub::available(){return serialPosition<serialInput.size();}int SerialStub::read(){return available()?serialInput[serialPosition++]:-1;}
 int SerialStub::readBytes(uint8_t*,size_t){return 0;}
-size_t SerialStub::write(const uint8_t*,size_t n){return n;}
+size_t SerialStub::write(const uint8_t* bytes,size_t n){serialOutput.insert(serialOutput.end(),bytes,bytes+n);return n;}
 size_t SerialStub::println(const char*){return 0;}
 uint32_t EspClass::getFreeHeap(){return 100000;}void EspClass::restart(){}
 namespace rockey::secp {
@@ -30,6 +33,55 @@ struct NavigationProbe {
     App app;app.buttons_.Init({});app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
     Display::Init();app.Go(App::Screen::kMenu);app.DrawMenu();
     require(app.menu_.count==10,"menu-count");
+    // Actual encrypted pairing and possession proof across App::Loop(), with
+    // host serial/GPIO adapters. Count menu fills through the whole handshake.
+    auto frame=[](uint8_t type,uint32_t sequence,const vaultlink::Bytes& payload){
+      vaultlink::Bytes bytes{0xa5,0x5a,2,type,0};auto seq=vaultlink::le32(sequence);
+      bytes.insert(bytes.end(),seq.begin(),seq.end());bytes.push_back(payload.size()&255);bytes.push_back(payload.size()>>8);
+      bytes.insert(bytes.end(),payload.begin(),payload.end());auto crc=vaultlink::le32(vaultlink::crc32(bytes.data()+2,bytes.size()-2));
+      bytes.insert(bytes.end(),crc.begin(),crc.end());serialInput=bytes;serialPosition=0;
+    };
+    auto rng=+[](void*,unsigned char* bytes,size_t n){rand::Fill(bytes,n);return 0;};
+    vaultlink::X25519 host(rng);
+    const auto hello=vaultlink::obj({{"hostEph",host.public_key()},{"hostNonce",vaultlink::Bytes(32,1)},
+      {"protocolVersion",uint64_t(2)},{"capabilities",vaultlink::Value::list({})},
+      {"walletGeneration",uint64_t(1)},{"backendGeneration",uint64_t(1)},{"hostRunGeneration",uint64_t(1)}});
+    frame(1,0,vaultlink::encode(hello));app.Loop();
+    vaultlink::FrameReader reader;vaultlink::Frame ackFrame;bool gotAck=false;
+    for(auto byte:serialOutput)if(reader.feed(byte,ackFrame))gotAck=true;
+    require(gotAck&&ackFrame.type==2,"pairing-hello-ack-missing");
+    const auto ack=vaultlink::decode(vaultlink::Bytes(ackFrame.payload.begin(),ackFrame.payload.begin()+ackFrame.size));
+    static constexpr char handshakeLabel[]="vlp:handshake:v2\0";
+    const auto digest=vaultlink::sha256(vaultlink::join({vaultlink::text_bytes(handshakeLabel,sizeof(handshakeLabel)-1),
+      vaultlink::encode(vaultlink::obj({{"hello",hello},{"ack",ack}}),2048)}));
+    const auto shared=host.shared(ack.at("deviceEph").binary(32));
+    vaultlink::Record send(vaultlink::hkdf(shared,digest,"vlp:link:c2s:key:v2",32),
+      vaultlink::hkdf(shared,digest,"vlp:link:c2s:nonce:v2",12),ack.at("deviceRunId").integer(),ack.at("connectionId").integer());
+    static constexpr char pairingLabel[]="vlp:link:pairing:v2";
+    const auto hash=vaultlink::sha256(vaultlink::join({vaultlink::text_bytes(pairingLabel,sizeof(pairingLabel)-1),digest}));
+    auto code=std::to_string(((uint32_t(hash[0])<<16)|(uint32_t(hash[1])<<8)|hash[2])%1000000);code.insert(0,6-code.size(),'0');
+    auto payload=send.seal(3,vaultlink::encode(vaultlink::obj({{"code",code}})));frame(3,send.sequence(),payload);app.Loop();
+    auto& pairController=*app.vaultlink_;
+    require(pairController.active_ui()&&!pairController.connected(),"pairing-page-not-open");
+    const auto pairFills=fullScreenFills,pairClears=fullScreenRedraws;
+    for(int tick=0;tick<8;++tick){delay(25);app.Loop();}
+    middleDown=true;
+    for(int tick=0;tick<100;++tick){delay(25);app.Loop();}
+    require(pairController.pair_answer==1&&pairController.active_ui()&&!pairController.connected(),"pairing-closed-before-proof");
+    require(fullScreenFills==pairFills&&fullScreenRedraws==pairClears,"pairing-confirmation-flashed-screen");
+    middleDown=false;
+    for(int tick=0;tick<8;++tick){delay(25);app.Loop();}
+    require(pairController.pair_answer==1,"pairing-release-changed-decision");
+    payload=send.seal(5,vaultlink::encode(vaultlink::obj({{"challenge",vaultlink::Bytes(32,2)}})));frame(5,send.sequence(),payload);app.Loop();
+    require(pairController.connected()&&!pairController.active_ui()&&KeyStore::IsUnlocked(),"pairing-proof-did-not-connect");
+    require(fullScreenFills==pairFills+1&&fullScreenRedraws==pairClears,"pairing-return-drew-menu-more-than-once");
+    for(int tick=0;tick<8;++tick){delay(25);app.Loop();}
+    require(fullScreenFills==pairFills+1,"pairing-idle-redrew-menu");
+    serialInput.clear();serialOutput.clear();serialPosition=0;
+    app.vaultlink_.reset();
+    require(KeyStore::Unlock("12345678",8)==keystore::Status::kOk,"pairing-regression-cleanup-unlock");
+    app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
+    soundOutput.clear();
     sound::player=sound::Player(observeSound);
     require(sound::Enabled(false)&&sound::Enabled(true),"sound-not-default-on");
     app.menuSelected_=7;app.OnButton(Btn::kB,BtnEvent::kShortPress);
