@@ -40,7 +40,6 @@ class App {
     kDenyConfirm,
     kGrants,
     kChannels,
-    kBackup,
     kErase,
     kError,
   };
@@ -78,7 +77,6 @@ class App {
   void DrawSummaryScreen();
   void DrawDenyConfirm();
   void DrawGrants();
-  void DrawBackup();
   void DrawErase();
   void DrawError();
 
@@ -97,7 +95,7 @@ class App {
   void HandleDenyConfirmInput(Btn btn, BtnEvent ev);
   void HandleEraseInput(Btn btn, BtnEvent ev);
   uint8_t SummaryScrollMax() const;
-  // 当前请求是否允许"会话级"决定。私钥导出/迁移/恢复备份只给一次性的
+  // 当前请求是否允许"会话级"决定。私钥导出/迁移只给一次性的
   // 允许/拒绝（需求 §5），菜单因此根本不显示会话项，而不是显示了再降级。
   bool SessionDecisionOffered() const;
 
@@ -196,12 +194,6 @@ class App {
   ops::ErrorCode errorCode_ = ops::ErrorCode::kOk;
   char errorText_[96] = {0};
   char infoLine_[64] = {0};
-  // 恢复备份
-  char recoveryCode_[27] = {0};
-  uint8_t recoveryBlob_[192] = {0};
-  size_t recoveryBlobLen_ = 0;
-  bool backupReady_ = false;
-  uint8_t backupScroll_ = 0;
   // 设备事件序号（单调递增，主机忽略旧事件）
   uint32_t eventSeq_ = 0;
 };

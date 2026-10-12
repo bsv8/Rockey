@@ -33,7 +33,7 @@ enum class Category : uint8_t {
   kMigration = 7,
 };
 
-// 导出、迁移与恢复备份不得持续授权（需求 §5：私钥导出和擦除不得持续允许）：
+// 导出、迁移不得持续授权（需求 §5：私钥导出和擦除不得持续允许）：
 // 这类请求只允许"本次允许/本次拒绝"，会话允许/会话否决对它们无效。
 // 调用方在把它写成持续决定前必须先过这一问。
 bool PersistentDecisionAllowed(Category c);

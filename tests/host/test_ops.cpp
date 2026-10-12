@@ -592,7 +592,7 @@ void TestPolicyQuota() {
 
 void TestPersistentDecisionGate() {
   Begin("policy/persistent-gate");
-  // 导出、迁移与恢复备份：私钥离开设备这类动作不得留下持续授权
+  // 导出、迁移：私钥离开设备这类动作不得留下持续授权
   Check(!PersistentDecisionAllowed(rockey::policy::Category::kMigration),
         "migration/export cannot be granted for the session");
   Check(PersistentDecisionAllowed(rockey::policy::Category::kIdentity), "identity may persist");

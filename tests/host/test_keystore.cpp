@@ -1,12 +1,11 @@
 // 主机侧测试（需要 mbedtls）：编译 src/ 里的**真实** keystore / vault_fs /
-// digest / aead 实现，跑密钥封装与恢复备份的端到端行为。
+// digest / aead 实现，跑密钥封装的端到端行为。
 //
 // 覆盖的都是"静默替换身份"或"解锁语义出错"这类只能靠执行才能发现的缺陷：
 //  - 首次设置 PIN 后能解锁，错误 PIN 记失败并进入递增等待（跨重启留时长）；
 //  - **已有 Key 时拒绝不同 Key 覆盖**（需求 §2 / R2）：换 Key 必须显式擦除；
-//  - 同一 Key 允许重新封装（换 PIN / 恢复），旧密文立即作废；
+//  - 同一 Key 允许重新封装（换 PIN），旧密文立即作废；
 //  - ChangePin 失败不破坏旧封装；
-//  - 恢复备份往返：恢复码+备份在新 PIN 下解回同一把 Key；篡改即拒绝；
 //  - 擦除后才能写入另一把 Key。
 //
 // 注意：这里的曲线运算用 mbedTLS 3.6 + 确定性 RNG（见 shim_env.cpp 注释），
@@ -174,47 +173,6 @@ int main() {
   DrainPinWait();
   Check(KeyStore::Unlock(kPin2, strlen(kPin2)) == Status::kOk, "new PIN works");
   KeyStore::Lock();
-
-  Begin("keystore/recovery-backup");
-  // 需要解锁状态才能生成备份（上一次失败又进入了等待，先耗尽）
-  DrainPinWait();
-  Check(KeyStore::Unlock(kPin2, strlen(kPin2)) == Status::kOk, "unlock for backup");
-  char code[64] = {0};
-  uint8_t blob[256] = {0};
-  size_t blobLen = sizeof(blob);
-  Check(KeyStore::CreateRecoveryBackup(code, sizeof(code), blob, &blobLen) == Status::kOk,
-        "recovery backup created");
-  Check(strlen(code) == KeyStore::kRecoveryCodeChars, "recovery code is 26 base32 chars");
-  Check(KeyStore::HasRecoveryBackup(), "backup record written");
-
-  // 擦除后用"恢复码 + 备份 + 新 PIN"在新设备上恢复同一把 Key
-  Check(KeyStore::Erase(), "erase completes all persistent removals");
-  Check(!KeyStore::HasKey(), "erase removed the key");
-  Check(KeyStore::RestoreFromBackup(code, blob, blobLen, kPin, strlen(kPin)) == Status::kOk,
-        "restore the same key from the backup");
-  DrainPinWait();
-  Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk, "restored key unlocks with new PIN");
-  {
-    const uint8_t* p = KeyStore::PrivateKey();
-    Check(p && memcmp(p, kPrivA, 32) == 0, "restored key is the original private key");
-  }
-  KeyStore::Lock();
-
-  Begin("keystore/restore-tamper");
-  {
-    uint8_t bad[256] = {0};
-    memcpy(bad, blob, blobLen);
-    bad[blobLen - 1] ^= 0x01;  // 改 tag 一个比特
-    Check(KeyStore::RestoreFromBackup(code, bad, blobLen, kPin, strlen(kPin)) != Status::kOk,
-          "tampered backup is refused");
-  }
-  {
-    uint8_t bad[256] = {0};
-    memcpy(bad, blob, blobLen);
-    Check(KeyStore::RestoreFromBackup("aaaaaaaaaaaaaaaaaaaaaaaaaa", bad, blobLen, kPin,
-                                      strlen(kPin)) != Status::kOk,
-          "wrong recovery code is refused");
-  }
 
   Begin("keystore/erase-then-other-key");
   Check(KeyStore::Erase(), "erase completes before another key may be created");
@@ -421,11 +379,6 @@ int main() {
   Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "reboot retains test network");
   Check(KeyStore::ChangePin(kPin, strlen(kPin), kPin2, strlen(kPin2)) == Status::kOk, "change test identity PIN");
   Check(KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "PIN change retains test network");
-  char testCode[64] = {0}; uint8_t testBackup[256] = {0}; size_t testBackupLen = sizeof(testBackup);
-  Check(KeyStore::CreateRecoveryBackup(testCode, sizeof(testCode), testBackup, &testBackupLen) == Status::kOk, "create authenticated test identity backup");
-  Check(KeyStore::Erase(), "erase before restoring test identity");
-  Check(KeyStore::RestoreFromBackup(testCode, testBackup, testBackupLen, kPin, strlen(kPin)) == Status::kOk, "restore authenticated test identity backup");
-  Check(KeyStore::Unlock(kPin, strlen(kPin)) == Status::kOk && KeyStore::Info_().bsvNetwork == rockey::keystore::BsvNetwork::Test, "restored identity retains network plus private key");
   printf("\n%d passed, %d failed\n", g_pass, g_fail);
   return g_fail == 0 ? 0 : 1;
 }

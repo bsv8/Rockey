@@ -211,7 +211,7 @@ Status KeyStore::WrapAndStore(const char* pinDigits, size_t pinLen, const uint8_
   uint8_t pub[33];
   if (!secp::PubkeyFromPriv(priv, pub)) return Status::kInvalidArg;
 
-  // 单业务 Key：已有 Key 时只有**同一把**才允许重新封装（换 PIN、恢复、
+  // 单业务 Key：已有 Key 时只有**同一把**才允许重新封装（换 PIN、
   // 迁移补写都走这条）。不同 Key 一律拒绝 —— 换 Key 必须先显式擦除设备
   // （需求 §2）。少了这道检查，任何调用方都能静默替换设备上的身份，
   // 而公钥一换，Channel/本地秘密/迁移记录全部对不上。
@@ -410,7 +410,7 @@ bool KeyStore::Erase(bool preserveMigration) {
   Lock();
   // Keep the migration recovery marker until every destructive step succeeds.
   // A partial erase is an error, never evidence that a new identity may be created.
-  if (!store::Init() || !store::Remove(store::kPathBackup)
+  if (!store::Init()
       || !store::Remove("/vault/vlp-policy.bin") || !store::Remove(store::kPathKey)
       || !store::Remove(store::kPathDevice) || !GenerateDeviceSecret()
       || !store::Remove(store::kPathState)) return false;
@@ -424,180 +424,6 @@ bool KeyStore::Erase(bool preserveMigration) {
       && store::Remove("/vault/vlp-migration.bin"));
 }
 
-
-// ── 设备外恢复备份 ──────────────────────────────────────────────────────
-// 备份格式 v1（自足，不依赖旧设备的任何秘密材料）：
-//   code  = base32(16 字节硬件随机)                    —— 用户离线抄写
-//   key   = SHA256d("rockey:recovery:v1" || 0x00 || UTF8(code) || 0x00 || pubkey(33))
-//   nonce = 12 字节随机
-//   blob  = "RKB1" || version(2) || pubkey(33) || nonce(12) || ct(32) || tag(16) || bsvNetwork(1)
-//
-// 安全边界（必须如实告知用户）：恢复码等价于私钥，任何拿到它的人都能恢复该 Key。
-// 这比"设备 + PIN"弱，界面与文档都要写清楚，不得包装成"更安全的备份"。
-namespace {
-
-constexpr char kB32[] = "abcdefghijklmnopqrstuvwxyz234567";
-constexpr size_t kRecoveryCodeBytes = 16;
-constexpr size_t kRecoveryCodeChars = 26;
-constexpr size_t kRecoveryBlobLen = 4 + 1 + 33 + 12 + 32 + 16 + 1;
-// AAD = version(1) || 0x000000(3) || pubkey(33) || bsvNetwork(1)：备份绑定完整身份
-constexpr size_t kRecoveryAadLen = 1 + 3 + 33 + 1;
-
-void BuildRecoveryAad(const uint8_t pub[33], BsvNetwork network, uint8_t out[kRecoveryAadLen]) {
-  out[0] = 2;
-  out[1] = out[2] = out[3] = 0;
-  memcpy(out + 4, pub, 33);
-  out[37] = static_cast<uint8_t>(network);
-}
-
-void Base32Encode16(const uint8_t in[16], char* out /* 26 chars */) {
-  uint32_t bits = 0;
-  int nbits = 0;
-  size_t o = 0;
-  for (size_t i = 0; i < 16; ++i) {
-    bits = (bits << 8) | in[i];
-    nbits += 8;
-    while (nbits >= 5) {
-      out[o++] = kB32[(bits >> (nbits - 5)) & 0x1F];
-      nbits -= 5;
-    }
-  }
-  if (nbits > 0) out[o++] = kB32[(bits << (5 - nbits)) & 0x1F];
-  out[o] = '\0';
-}
-
-bool Base32Decode16(const char* in, size_t len, uint8_t out[16]) {
-  if (len != kRecoveryCodeChars) return false;
-  uint32_t bits = 0;
-  int nbits = 0;
-  size_t o = 0;
-  for (size_t i = 0; i < len; ++i) {
-    const char* p = strchr(kB32, in[i]);
-    if (!p || in[i] == '\0') return false;
-    bits = (bits << 5) | static_cast<uint32_t>(p - kB32);
-    nbits += 5;
-    if (nbits >= 8) {
-      if (o >= 16) return false;
-      out[o++] = static_cast<uint8_t>((bits >> (nbits - 8)) & 0xFF);
-      nbits -= 8;
-    }
-  }
-  return o == 16;
-}
-
-bool RecoveryKey(const char* code, const uint8_t pub[33], uint8_t out[32]) {
-  static const char* kLabel = "rockey:recovery:v1";
-  uint8_t buf[128];
-  size_t n = 0;
-  size_t l = strlen(kLabel);
-  memcpy(buf, kLabel, l);
-  n = l;
-  buf[n++] = 0;
-  size_t cl = strlen(code);
-  memcpy(buf + n, code, cl);
-  n += cl;
-  buf[n++] = 0;
-  memcpy(buf + n, pub, 33);
-  n += 33;
-  digest::Sha256d(buf, n, out);
-  secure::Wipe(buf, sizeof(buf));
-  return true;
-}
-
-}  // namespace
-
-Status KeyStore::CreateRecoveryBackup(char* codeOut, size_t codeCap, uint8_t* backupOut,
-                                      size_t* backupLen) {
-  if (!IsUnlocked()) return Status::kLocked;
-  if (codeCap < static_cast<size_t>(kRecoveryCodeChars) + 1 || !backupOut) {
-    return Status::kInvalidArg;
-  }
-  uint8_t raw[kRecoveryCodeBytes];
-  rand::Fill(raw, kRecoveryCodeBytes);
-  Base32Encode16(raw, codeOut);
-
-  uint8_t key[32];
-  RecoveryKey(codeOut, g_pub, key);
-  uint8_t nonce[12];
-  rand::Fill(nonce, 12);
-  static uint8_t blob[kRecoveryBlobLen];
-  memcpy(blob, "RKB1", 4);
-  blob[4] = 2;
-  blob[98] = static_cast<uint8_t>(g_network);
-  memcpy(blob + 5, g_pub, 33);
-  memcpy(blob + 38, nonce, 12);
-  uint8_t aad[kRecoveryAadLen];
-  BuildRecoveryAad(g_pub, g_network, aad);
-  if (!aead::Seal(key, nonce, aad, kRecoveryAadLen, g_priv.data(), 32, blob + 50, blob + 82)) {
-    secure::Wipe(key, sizeof(key));
-    secure::Wipe(raw, sizeof(raw));
-    return Status::kIoError;
-  }
-  if (!store::WriteRecord(store::kPathBackup, 1, blob, kRecoveryBlobLen, nullptr)) {
-    secure::Wipe(key, sizeof(key));
-    secure::Wipe(raw, sizeof(raw));
-    return Status::kIoError;
-  }
-  if (backupOut && backupLen && *backupLen >= kRecoveryBlobLen) {
-    memcpy(backupOut, blob, kRecoveryBlobLen);
-    *backupLen = kRecoveryBlobLen;
-  }
-  secure::Wipe(key, sizeof(key));
-  secure::Wipe(raw, sizeof(raw));
-  secure::Wipe(blob, sizeof(blob));
-  return Status::kOk;
-}
-
-bool KeyStore::HasRecoveryBackup() { return store::Exists(store::kPathBackup); }
-
-bool KeyStore::ReadRecoveryBackup(uint8_t* out, size_t cap, size_t* len) {
-  if (!out || cap < kRecoveryBlobLen) return false;
-  size_t got = 0;
-  if (!store::ReadRecord(store::kPathBackup, out, cap, &got, nullptr)) return false;
-  if (got != kRecoveryBlobLen) return false;
-  if (memcmp(out, "RKB1", 4) != 0 || out[4] != 2 || out[98] > 1) return false;
-  if (len) *len = got;
-  return true;
-}
-
-Status KeyStore::RestoreFromBackup(const char* code, const uint8_t* backup, size_t backupLen,
-                                   const char* newPinDigits, size_t newPinLen) {
-  if (!code || !backup) return Status::kInvalidArg;
-  if (backupLen != kRecoveryBlobLen || memcmp(backup, "RKB1", 4) != 0 || backup[4] != 2 || backup[98] > 1) {
-    return Status::kCorrupt;
-  }
-  if (HasKey()) {
-    // 已有 Key 时只允许恢复同一 Key，避免静默替换身份
-    Info info = Info_();
-    if (memcmp(backup + 5, info.pubkey, 33) != 0 || info.bsvNetwork != static_cast<BsvNetwork>(backup[98])) return Status::kWrongKey;
-  }
-  uint8_t raw[kRecoveryCodeBytes];
-  if (!Base32Decode16(code, strlen(code), raw)) return Status::kInvalidArg;
-  uint8_t key[32];
-  RecoveryKey(code, backup + 5, key);
-  static uint8_t priv[32];
-  uint8_t aad[kRecoveryAadLen];
-  BuildRecoveryAad(backup + 5, static_cast<BsvNetwork>(backup[98]), aad);
-  bool ok = aead::Open(key, backup + 38, aad, kRecoveryAadLen, backup + 50, 32, backup + 82, priv);
-  secure::Wipe(key, sizeof(key));
-  secure::Wipe(raw, sizeof(raw));
-  if (!ok) {
-    secure::Wipe(priv, sizeof(priv));
-    return Status::kWrongPin;  // 恢复码错误
-  }
-  uint8_t derived[33];
-  if (!secp::PubkeyFromPriv(priv, derived) || memcmp(derived, backup + 5, 33) != 0) {
-    secure::Wipe(priv, sizeof(priv));
-    return Status::kCorrupt;
-  }
-  Status st = WrapAndStore(newPinDigits, newPinLen, priv, static_cast<BsvNetwork>(backup[98]));
-  secure::Wipe(priv, sizeof(priv));
-  if (st != Status::kOk) return st;
-  // 恢复成功后清除设备上的旧备份材料，避免旧密文残留
-  store::Remove(store::kPathBackup);
-  memcpy(g_pub, derived, 33);
-  return Status::kOk;
-}
 
 #if defined(ROCKEY_DEV_TEST_KEY)
 Status KeyStore::DevInjectTestKey(const char* pinDigits, size_t pinLen) {

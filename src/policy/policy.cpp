@@ -41,7 +41,7 @@ void Policy::ClearSession(uint32_t sessionId) {
 uint32_t Policy::decisionRevision() { return s_revision_; }
 
 bool PersistentDecisionAllowed(Category c) {
-  // 迁移/导出/恢复备份：一次性的物理许可，绝不落持续表。
+  // 迁移/导出：一次性的物理许可，绝不落持续表。
   // "允许本会话导出私钥"会把一次危险动作变成长期许可，因此这里直接不允许。
   return c != Category::kMigration;
 }

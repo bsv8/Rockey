@@ -91,7 +91,6 @@
   X(kMenuDeviceInfo, "Device info", "设备信息", "裝置資訊", "裝置資訊", "デバイス情報")                 \
   X(kMenuKeyDetail, "Full public key", "完整公钥", "完整公鑰", "完整公鑰", "公開鍵全体")                 \
   X(kMenuImportKey, "Import key", "迁入密钥", "匯入密鑰", "匯入密鑰", "鍵のインポート")                \
-  X(kMenuRecoveryBackup, "Recovery backup", "恢复备份", "復原備份", "復原備份", "復旧バックアップ")       \
   X(kMenuErase, "Erase device", "擦除设备", "清除裝置", "清除裝置", "デバイスを消去")                   \
   X(kMenuEmpty, "Nothing to review", "没有待确认请求", "沒有待確認請求", "沒有待確認請求",              \
     "確認待ちはありません")                                                                           \
@@ -298,16 +297,6 @@
     "私鑰將離開本裝置。任何拿到這台電腦的人都能讀取它，重新鎖定也無法收回。",                             \
     "私鑰將離開本裝置。任何拿到這部電腦的人都能讀取它，重新鎖定也無法收回。",                             \
     "秘密鍵はデバイスを離れます。この端末を操作できる人は誰でも読み取れ、再ロックしても戻せません。")     \
-  X(kBackupTitle, "Recovery backup", "恢复备份", "復原備份", "復原備份", "復旧用バックアップ")            \
-  X(kBackupExplain,                                                                                  \
-    "Write down the code below and keep it offline. It restores the same key on a new device.",       \
-    "请抄写下面的恢复码并离线保存，可在更换设备后恢复同一密钥。",                                         \
-    "請抄寫下面的復原碼並離線保存，可在更換裝置後復原同一密鑰。",                                         \
-    "請抄寫下面的復原碼並離線保存，可在更換裝置後復原同一密鑰。",                                         \
-    "以下の復旧コードを書き写してオフラインで保管すると、新しい端末で同じ鍵を復元できます。")             \
-  X(kBackupCode, "Backup code", "恢复码", "復原碼", "復原碼", "復旧コード")                              \
-  X(kBackupDone, "Backup created", "恢复备份已生成", "復原備份已產生", "復原備份已產生",                  \
-    "バックアップを作成しました")                                                                      \
   /* 擦除 */                                                                                          \
   X(kEraseTitle, "Erase device", "擦除设备", "清除裝置", "清除裝置", "デバイスの消去")                    \
   X(kEraseWarning,                                                                                   \

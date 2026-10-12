@@ -83,7 +83,6 @@ bool LookupOp(const char* name, size_t len, OpId* out) {
       {"migration.import", OpId::kMigrationImport},
       {"migration.export", OpId::kMigrationExport},
       {"migration.status", OpId::kMigrationStatus},
-      {"recovery.backup", OpId::kRecoveryBackup},
   };
   for (const auto& e : kTable) {
     if (strlen(e.n) == len && memcmp(e.n, name, len) == 0) {
@@ -135,7 +134,6 @@ policy::Category CategoryOf(OpId op) {
     case OpId::kMigrationImport:
     case OpId::kMigrationExport:
     case OpId::kMigrationStatus:
-    case OpId::kRecoveryBackup:
       return policy::Category::kMigration;
     default:
       return policy::Category::kSystem;
@@ -1088,11 +1086,6 @@ PrepareStatus Prepare(const uint8_t* body, size_t bodyLen, uint32_t requestId, R
       }
       doc->AddChapter(i18n::T(i18n::Str::kSumExcludes), kChapterRequired);
       doc->AppendLine(i18n::T(i18n::Str::kScopePay));
-      break;
-    }
-    case OpId::kRecoveryBackup: {
-      doc->AddChapter(i18n::T(i18n::Str::kSumRisks), kChapterRequired | kChapterWarning);
-      doc->AppendLine(i18n::T(i18n::Str::kBackupExplain));
       break;
     }
     default:

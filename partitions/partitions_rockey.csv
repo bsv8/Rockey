@@ -15,7 +15,6 @@
 #   /vault/key.bin        单业务私钥的设备封装（版本化 AEAD）
 #   /vault/meta.bin       生成号、公钥、PIN 参数版本
 #   /vault/state.bin      PIN 失败计数（单调，防拔线重置）
-#   /vault/backup.bin     设备外恢复备份（一次性导出，需用户另行保存）
 #   /vault/migration.bin  迁移事务记录（公开进度，不含秘密）
 #   /docs/*               长文阅读内容（只读缓存，非信任来源）
 

@@ -18,7 +18,7 @@ Rockey 是面向 Keymaster 的 ESP32 / M5Stack 实验硬件 Vault：设备独立
 - [冻结/线缆格式](./docs/冻结/线缆格式.md)：帧、握手、请求/响应字段表与确定性编码规则。历史设备线缆记录；新对接以 VLP 联合冻结版本为准。
 - [冻结/构建配置矩阵](./docs/冻结/构建配置矩阵.md)：LANG / FONT_PROFILE / GLYPH_SET 与环境矩阵。
 - [冻结/硬件清单](./docs/冻结/硬件清单.md)：固件当前假定的硬件参数，**尚未真机确认**；并如实记录安全熔丝未启用。
-- [冻结/密钥封装](./docs/冻结/密钥封装.md)：封装格式 v1、失败等待与恢复备份格式。
+- [冻结/密钥封装](./docs/冻结/密钥封装.md)：封装格式 v1、失败等待机制。
 - [Keymaster 需求](../keymaster.cc/docs/proposals/rockey/Vault软硬件统一需求.md)与 [施工单](../keymaster.cc/docs/proposals/rockey/Vault软硬件统一施工单.md)：浏览器侧统一 Vault 与单 Key 生命周期改造。
 
 跨仓库链接假定 Rockey 与 keymaster.cc 同级检出。Rockey 继承此前 LabVault 设计名称下的实验定位，不宣称专用安全芯片等级的物理防护。
@@ -36,7 +36,7 @@ tools/build/main.sh --check-only
 | 检查 | 内容 |
 | --- | --- |
 | `tools/syntax/main.sh` | 对 `src/` 做 `-fsyntax-only`；本机有 mbedTLS 时覆盖 27/28 个实现文件。 |
-| `tests/host/` | 编译 `src/` 里的**真实实现**跑 1489 条断言：CBOR/帧、AES-GCM 对照 mbedTLS、HKDF 对照 RFC 5869 与 mbedTLS、X25519 对照 RFC 7748、交易序列化与 sighash 预映像、地址向量、授权撤销与限额、本地秘密往返、64 位金额格式化、密钥封装/换 PIN/失败等待/恢复备份、已撤销与未冻结入口的拒绝行为。 |
+| `tests/host/` | 编译 `src/` 里的**真实实现**运行回归断言：CBOR/帧、AES-GCM 对照 mbedTLS、HKDF 对照 RFC 5869 与 mbedTLS、X25519 对照 RFC 7748、交易序列化与 sighash 预映像、地址向量、授权撤销与限额、本地秘密往返、64 位金额格式化、密钥封装/换 PIN/失败等待、已撤销与未冻结入口的拒绝行为。 |
 | `tools/wire-encoding/main.py` | 字段名长度守卫、CBOR 键序、`BeginMap` 计数。 |
 | `tools/i18n/main.py` | 文案完整性。 |
 | `tools/test-vectors/main.py` | X25519 / AES-GCM / RIPEMD-160 / 本地秘密 v3。RIPEMD 与 AES-GCM 两节会**编译并执行**固件代码后比对；其余目前只比对常量，覆盖不足处已在输出中注明。 |
@@ -49,6 +49,6 @@ tools/build/main.sh --check-only
 
 底层 ChangePin 的旧 PIN 校验改用统一 Unlock 门禁，错误旧 PIN 现在记持久失败次数、进入等待并清除 RAM Key，不再绕开失败保护；非法新 PIN 提交前拒绝。主机 keystore 41 条断言通过，包括错误旧 PIN、失败等待、锁定后不能继续改 PIN、旧封装仍可解锁、改 PIN 后仅新 PIN 有效。它验证真实密码学/KeyStore 逻辑，宿主 LittleFS/时钟为明确的测试适配，不代表实体 Flash 掉电或按钮验收。
 
-主菜单容量为 9 项，显示窗口随当前选中项滚动；原仅显示前 6 项导致恢复备份/擦除不可见的问题一并修复。构建支持 ROCKEY_BUILD_JOBS（默认 2），可降低并行度；此前系统临时空间不足的失败不算发布验证通过。
+主菜单容量为 9 项，显示窗口随当前选中项滚动；原仅显示前 6 项导致擦除不可见的问题一并修复。构建支持 ROCKEY_BUILD_JOBS（默认 2），可降低并行度；此前系统临时空间不足的失败不算发布验证通过。
 
 Keymaster 已增加首次硬件绑定、公开记录原子初始化和实际操作状态顶栏，不新增 RocKey 信用查询/Markdown 或 USB 握手消息。迁移、Channel 兼容、BitFS 卖方开池预签和真设备验收仍未完成。

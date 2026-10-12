@@ -35,13 +35,6 @@ namespace {
 bool browserConnected=false;
 const char* LangHint() { return i18n::T(browserConnected?i18n::Str::kBrowserConnected:i18n::Str::kBrowserDisconnected); }
 
-inline bool ev_backupScroll(const Buttons& b, uint32_t now) {
-  if (b.IsDown(Btn::kC)) return true;
-  if (b.IsDown(Btn::kA)) return true;
-  (void)now;
-  return false;
-}
-
 }  // namespace
 
 bool App::SelfTest() {
@@ -270,8 +263,7 @@ void App::Loop() {
 
   hold_.Update(buttons_, now,
                screen_ == Screen::kSummary || screen_ == Screen::kDenyConfirm ||
-                   screen_ == Screen::kPairing ||
-                   (screen_ == Screen::kBackup && !backupReady_));
+                   screen_ == Screen::kPairing);
 
   // 设备状态回报给主机（需求 §4 的状态区分）：
   // 锁定设备允许最小 info/配对，但主机据此知道不能发业务签名。
@@ -291,24 +283,6 @@ void App::Loop() {
       link_.SetDeviceState(ds);
       // 状态变化要立刻让主机知道，否则只能在下次握手时看到
       if (!link_.pairing().required) SendStateEvent(ds);
-    }
-  }
-
-  // 恢复备份：长按 B 确认生成；生成后 C/A 滚动备份数据
-  if (screen_ == Screen::kBackup) {
-    if (!backupReady_ && hold_.Fired()) {
-      hold_.Reset();
-      size_t cap = sizeof(recoveryBlob_);
-      if (keystore::KeyStore::CreateRecoveryBackup(recoveryCode_, sizeof(recoveryCode_),
-                                                    recoveryBlob_, &cap) ==
-          keystore::Status::kOk) {
-        recoveryBlobLen_ = cap;
-        backupReady_ = true;
-        backupScroll_ = 0;
-        needsRedraw_ = true;
-      }
-    } else if (backupReady_) {
-      if (ev_backupScroll(buttons_, now)) needsRedraw_ = true;
     }
   }
 
@@ -406,7 +380,6 @@ void App::OnButton(Btn btn, BtnEvent ev) {
     case Screen::kMenu:
     case Screen::kInfo:
     case Screen::kPubkey:
-    case Screen::kBackup:
       HandleMenuInput(btn, ev);
       break;
     case Screen::kChannels:
@@ -495,7 +468,7 @@ uint8_t App::SummaryScrollMax() const {
 }
 
 bool App::SessionDecisionOffered() const {
-  // 导出/迁移/恢复备份：不得持续授权，因此菜单不显示"此会话允许/否决"。
+  // 导出/迁移：不得持续授权，因此菜单不显示"此会话允许/否决"。
   // Decide() 里还有同一道门禁作为兜底（浏览器改不了菜单也要守住语义）。
   if (current_ < 0) return false;
   return policy::PersistentDecisionAllowed(
@@ -790,18 +763,17 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
         case 1: Go(Screen::kGrants); return;
         case 2: Go(Screen::kInfo); return;
         case 3: Go(Screen::kPubkey); return;
-        case 4: backupReady_ = false; hold_.Reset(); Go(Screen::kBackup); return;
-        case 5: Go(Screen::kErase); return;
-        case 6: LockNow("change PIN"); changingPin_ = true; return;
-        case 9:
+        case 4: Go(Screen::kErase); return;
+        case 5: LockNow("change PIN"); changingPin_ = true; return;
+        case 8:
           channelSettings_.signing=[this]{return vaultlink_->signing_channels();};
           channelSettings_.payments=[this]{return vaultlink_->payment_channels();};
           channelSettings_.saveSigning=[this](const std::string& id,const std::string& mode,uint64_t rev){vaultlink_->configure_signing(id,mode,rev);};
           channelSettings_.savePayment=[this](const vaultlink::Channel& c){vaultlink_->configure_payment(c);};
           channelSettings_.reset();Go(Screen::kChannels);return;
-        case 7:
-        case 8: {
-          const bool manual=menuSelected_==8;
+        case 6:
+        case 7: {
+          const bool manual=menuSelected_==7;
           const bool enabled=!sound::Enabled(manual);
           if(!sound::SetEnabled(manual,enabled))ShowErrorScreen(ops::ErrorCode::kResultUnknown);
           // 保存成功再示范对应音色；关闭时只取消该类声音，不播放提示。
@@ -817,8 +789,7 @@ void App::HandleMenuInput(Btn btn, BtnEvent ev) {
     return;
   }
 
-  if (screen_ == Screen::kInfo || screen_ == Screen::kPubkey ||
-      screen_ == Screen::kBackup) {
+  if (screen_ == Screen::kInfo || screen_ == Screen::kPubkey) {
     if (btn == Btn::kB && (ev == BtnEvent::kShortPress || ev == BtnEvent::kLongPress)) {
       Go(Screen::kMenu);
     }
@@ -1080,7 +1051,7 @@ void App::PresentCurrent() {
 void App::Decide(policy::Decision d) {
   if (current_ < 0) return;
   Pending& p = queue_[current_];
-  // 私钥导出、迁移与恢复备份不得持续授权：即便用户在菜单里选了
+  // 私钥导出、迁移不得持续授权：即便用户在菜单里选了
   // "此会话允许/否决"，对这类操作也只能按一次性的结果处理。
   // 否则"允许本会话导出私钥"会变成一条长期许可（需求 §5 / VLP §4）。
   if (!policy::PersistentDecisionAllowed(static_cast<policy::Category>(p.exec.category))) {
@@ -1248,7 +1219,6 @@ void App::Draw() {
     case Screen::kSummary: DrawSummaryScreen(); break;
     case Screen::kDenyConfirm: DrawDenyConfirm(); break;
     case Screen::kGrants: DrawGrants(); break;
-    case Screen::kBackup: DrawBackup(); break;
     case Screen::kErase: DrawErase(); break;
     case Screen::kError: DrawError(); break;
   }
@@ -1358,7 +1328,6 @@ void App::DrawMenu() {
   menu_.Add(i18n::T(i18n::Str::kMenuGrants));
   menu_.Add(i18n::T(i18n::Str::kMenuDeviceInfo));
   menu_.Add(i18n::T(i18n::Str::kMenuKeyDetail));
-  menu_.Add(i18n::T(i18n::Str::kMenuRecoveryBackup));
   menu_.Add(i18n::T(i18n::Str::kMenuErase));
   menu_.Add(i18n::T(i18n::Str::kMenuChangePin));
   menu_.Add(i18n::T(sound::Enabled(false)?i18n::Str::kSoundAutoOff:i18n::Str::kSoundAutoOn));
@@ -1440,7 +1409,7 @@ void App::DrawReqMenu() {
   ui::DrawHeader(i18n::T(i18n::Str::kReqTitle), ch);
   FillContent();
   // 默认焦点为"继续阅读"；会话级决定只对被允许的操作显示
-  // （导出/迁移/恢复备份不得持续授权，索性不给这个选项）
+  // （导出/迁移不得持续授权，索性不给这个选项）
   ui::MenuView m;
   m.Add(i18n::T(i18n::Str::kReqContinueReading));
   m.Add(i18n::T(i18n::Str::kReqDenyOnce));
@@ -1526,48 +1495,6 @@ void App::DrawGrants() {
   for(auto &line:vlp::display_chunks(entry.scope))lines.push_back(std::move(line));
   for(size_t i=0;i<lines.size();++i)Display::DrawText(FontRole::kSmall,6,36+int(i)*22,lines[i].data(),lines[i].size(),color::kWhite,color::kBlack);
   ui::DrawFooter(i18n::T(i18n::Str::kVlpGrantsPrevious),i18n::T(i18n::Str::kVlpGrantsCancel),i18n::T(i18n::Str::kBtnScrollNext));
-}
-
-void App::DrawBackup() {
-  ui::DrawHeader(i18n::T(i18n::Str::kBackupTitle), nullptr);
-  FillContent();
-  Rect c = Content();
-  if (!backupReady_) {
-    const char* e = i18n::T(i18n::Str::kBackupExplain);
-    ui::DrawNotice(e, color::kGray);
-    Rect bar{30, static_cast<int16_t>(Board::kContentY + 96), Board::kScreenW - 60, 10};
-    Display::DrawProgress(bar, hold_.Percent(now_), color::kYellow, color::kBlack);
-    ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnHoldConfirm),
-                   i18n::T(i18n::Str::kBtnBack));
-    return;
-  }
-  int lh = FontLineHeight(FontRole::kSmall);
-  int y = c.y + 4;
-  const char* lbl = i18n::T(i18n::Str::kBackupCode);
-  Display::DrawTextIn(Rect{c.x + 6, static_cast<int16_t>(y), c.w - 12, lh}, FontRole::kSmall, lbl,
-                      strlen(lbl), color::kGray, color::kBlack, TextAlign::kLeft, VAlign::kTop);
-  y += lh + 2;
-  // 恢复码分两行显示，避免横向截断
-  char part1[16] = {0}, part2[16] = {0};
-  memcpy(part1, recoveryCode_, 13);
-  memcpy(part2, recoveryCode_ + 13, 13);
-  Display::DrawTextIn(Rect{c.x + 6, static_cast<int16_t>(y), c.w - 12, lh}, FontRole::kMono,
-                      part1, 13, color::kYellow, color::kBlack, TextAlign::kLeft, VAlign::kTop);
-  Display::DrawTextIn(Rect{c.x + 6, static_cast<int16_t>(y + lh), c.w - 12, lh}, FontRole::kMono,
-                      part2, 13, color::kYellow, color::kBlack, TextAlign::kLeft, VAlign::kTop);
-  y += lh * 2 + 4;
-  // 备份数据滚动显示
-  char hex[70];
-  digest::ToHex(recoveryBlob_ + backupScroll_ * 24, 24, hex, sizeof(hex));
-  for (int i = 0; i < 4 && backupScroll_ * 24 + 24 <= recoveryBlobLen_; ++i) {
-    digest::ToHex(recoveryBlob_ + (backupScroll_ + i) * 24, 24, hex, sizeof(hex));
-    Display::DrawTextIn(Rect{c.x + 6, static_cast<int16_t>(y), c.w - 12, lh}, FontRole::kMono, hex,
-                        strlen(hex), color::kWhite, color::kBlack, TextAlign::kLeft,
-                        VAlign::kTop);
-    y += lh;
-  }
-  ui::DrawFooter(nullptr, i18n::T(i18n::Str::kBtnNext),
-                 i18n::T(i18n::Str::kBtnBack));
 }
 
 void App::DrawErase() {

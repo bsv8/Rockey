@@ -222,6 +222,14 @@ int main() {
           "evidence.receive is refused (credit/evidence entry revoked)");
   }
 
+  Begin("dispatch/recovery-backup-removed");
+  {
+    size_t n = BuildOpOnly(body, sizeof(body), "recovery.backup");
+    Check(n > 0, "removed backup request encoded");
+    Check(Prepare(body, n, 1, &doc, &exec, commitment) == PrepareStatus::kUnsupported,
+          "removed recovery backup API is unsupported");
+  }
+
   Begin("dispatch/fee-pool-freeze");
   {
     size_t n = BuildOpOnly(body, sizeof(body), "tx.feepool-sign");

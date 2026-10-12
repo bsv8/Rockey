@@ -15,7 +15,6 @@ namespace store {
 const char* const kPathDevice = "/vault/dev.bin";
 const char* const kPathKey = "/vault/key.bin";
 const char* const kPathState = "/vault/state.bin";
-const char* const kPathBackup = "/vault/backup.bin";
 const char* const kPathMigration = "/vault/mig.bin";
 
 namespace {

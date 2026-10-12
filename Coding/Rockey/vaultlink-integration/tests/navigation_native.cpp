@@ -32,7 +32,7 @@ struct NavigationProbe {
     require(KeyStore::SetPinAndWrap("12345678",8,key, rockey::keystore::BsvNetwork::Main)==keystore::Status::kOk&&KeyStore::Unlock("12345678",8)==keystore::Status::kOk,"key-init");
     App app;app.buttons_.Init({});app.vaultlink_=std::make_unique<vlp::Controller>(app.buttons_);
     Display::Init();app.Go(App::Screen::kMenu);app.DrawMenu();
-    require(app.menu_.count==10,"menu-count");
+    require(app.menu_.count==9,"menu-count");
     // Actual encrypted pairing and possession proof across App::Loop(), with
     // host serial/GPIO adapters. Count menu fills through the whole handshake.
     auto frame=[](uint8_t type,uint32_t sequence,const vaultlink::Bytes& payload){
@@ -84,18 +84,18 @@ struct NavigationProbe {
     soundOutput.clear();
     sound::player=sound::Player(observeSound);
     require(sound::Enabled(false)&&sound::Enabled(true),"sound-not-default-on");
-    app.menuSelected_=7;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.menuSelected_=6;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(!sound::Enabled(false)&&sound::Enabled(true)&&KeyStore::IsUnlocked(),"auto-sound-toggle-changed-manual-or-key");
     sound::loaded=false;
     require(!sound::Enabled(false)&&sound::Enabled(true),"sound-preference-not-persisted");
-    app.menuSelected_=8;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.menuSelected_=7;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(!sound::Enabled(false)&&!sound::Enabled(true)&&KeyStore::IsUnlocked(),"manual-sound-toggle-changed-key");
     require(soundOutput.empty(),"disable-played-a-tone");
-    app.menuSelected_=7;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.menuSelected_=6;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(soundOutput==std::vector<uint16_t>{2600},"enable-auto-did-not-preview-single");
     app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require((soundOutput==std::vector<uint16_t>{2600,0}),"disable-auto-played-a-tone");
-    soundOutput.clear();app.menuSelected_=8;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    soundOutput.clear();app.menuSelected_=7;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(soundOutput==std::vector<uint16_t>{1700},"enable-manual-did-not-preview");
     const auto previewTime=millis();sound::Poll(previewTime+100);sound::Poll(previewTime+180);
     require((soundOutput==std::vector<uint16_t>{1700,0,2300}),"enable-manual-did-not-preview-double");
@@ -106,7 +106,7 @@ struct NavigationProbe {
       policy.register_signing(vaultlink::Value::list({vaultlink::obj({{"id","identity.noise-proof"},{"owner","window-p2p"},{"kind","plugin"},{"operation","identity.noise-proof"},{"mode","automatic"},{"revision",vaultlink::Value(uint64_t(1))}})}),true);
       policy.configure(vaultlink::Channel{"checkout","p2pkh",100,0,1,true,"plugin","p2pkh"},true);
     }
-    app.vaultlink_->poll();app.menuSelected_=9;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    app.vaultlink_->poll();app.menuSelected_=8;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(app.screen_==App::Screen::kChannels&&KeyStore::IsUnlocked(),"channel-menu-locked");
     app.OnButton(Btn::kB,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
     app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kLongPress);app.OnButton(Btn::kB,BtnEvent::kHoldRepeat);app.OnButton(Btn::kB,BtnEvent::kRelease);
@@ -121,12 +121,16 @@ struct NavigationProbe {
     require(app.screen_==App::Screen::kError&&KeyStore::IsUnlocked(),"empty-request-changed-key");
     app.OnButton(Btn::kC,BtnEvent::kShortPress);
     require(app.screen_==App::Screen::kMenu&&KeyStore::IsUnlocked(),"empty-request-back-locked");
-    for(auto screen:{App::Screen::kInfo,App::Screen::kPubkey,App::Screen::kBackup}){
+    for(auto screen:{App::Screen::kInfo,App::Screen::kPubkey}){
       app.Go(screen);app.OnButton(Btn::kA,BtnEvent::kShortPress);
       require(KeyStore::IsUnlocked()&&app.screen_==screen,"left-button-locked");
       app.OnButton(Btn::kB,BtnEvent::kShortPress);
       require(KeyStore::IsUnlocked()&&app.screen_==App::Screen::kMenu,"page-back-locked");
     }
+    app.menuSelected_=4;app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kErase&&KeyStore::HasKey()&&KeyStore::IsUnlocked(),"erase-menu-only-opens-confirmation");
+    app.OnButton(Btn::kB,BtnEvent::kShortPress);
+    require(app.screen_==App::Screen::kMenu&&KeyStore::HasKey(),"erase-menu-cancel-preserves-key");
     // The vacated lock slot must now open device info, never erase or lock.
     app.menuSelected_=2;app.OnButton(Btn::kB,BtnEvent::kShortPress);
     require(app.screen_==App::Screen::kInfo&&KeyStore::IsUnlocked(),"shifted-menu-action");

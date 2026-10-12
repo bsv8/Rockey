@@ -83,20 +83,6 @@ class KeyStore {
   static bool Erase(bool preserveMigration = false);
   static bool GenerateDeviceSecret();
 
-  // ── 设备外恢复备份 ────────────────────────────────────────────
-  // 备份自足：用户抄写一次性恢复码，恢复码直接作为封装密钥的输入材料，
-  // 因此拿到恢复码 = 拿到私钥，这一点在界面上必须明确告知，不能暗示更安全。
-  static constexpr size_t kRecoveryCodeChars = 26;  // base32，无 padding
-  static constexpr size_t kRecoveryBackupMax = 160;
-  // 生成恢复码并把备份写入 /vault/backup.bin；恢复码只在本次调用后由界面显示一次
-  static Status CreateRecoveryBackup(char* codeOut, size_t codeCap, uint8_t* backupOut,
-                                     size_t* backupLen);
-  // 用恢复码 + 备份在当前设备恢复同一 Key，并设置新的 PIN
-  static Status RestoreFromBackup(const char* code, const uint8_t* backup, size_t backupLen,
-                                  const char* newPinDigits, size_t newPinLen);
-  static bool HasRecoveryBackup();
-  static bool ReadRecoveryBackup(uint8_t* out, size_t cap, size_t* len);
-
   // 开发固件专用：注入公开测试密钥（发布构建不包含）
   static Status DevInjectTestKey(const char* pinDigits, size_t pinLen);
 

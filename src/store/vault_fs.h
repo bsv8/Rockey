@@ -22,7 +22,6 @@ namespace store {
 extern const char* const kPathDevice;    // /vault/dev.bin
 extern const char* const kPathKey;       // /vault/key.bin
 extern const char* const kPathState;     // /vault/state.bin
-extern const char* const kPathBackup;    // /vault/backup.bin
 extern const char* const kPathMigration; // /vault/mig.bin
 
 constexpr size_t kRecordPayloadMax = 65536;

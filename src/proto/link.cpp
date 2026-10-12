@@ -55,7 +55,6 @@ constexpr size_t kCapabilities[] = {
     0x0071,  // MIGRATION/import
     0x0072,  // MIGRATION/export
     0x0073,  // MIGRATION/status
-    0x0081,  // RECOVERY/backup
 };
 
 }  // namespace

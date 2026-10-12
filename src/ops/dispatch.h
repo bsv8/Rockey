@@ -45,7 +45,6 @@ enum class OpId : uint8_t {
   kMigrationImport = 0x71,
   kMigrationExport = 0x72,
   kMigrationStatus = 0x73,
-  kRecoveryBackup = 0x81,
 };
 
 // 协议草案 §6 的错误类别；wire 码在 Gate 0 冻结为这些枚举值。
