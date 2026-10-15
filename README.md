@@ -8,7 +8,7 @@ Rockey 是面向 Keymaster 的 ESP32 / M5Stack 实验硬件 Vault：设备独立
 
 > 密码学曾经出现过三处"实现完全错误但自检显示通过"（HKDF 忽略 PRK、RIPEMD-160 移位表错、AES-GCM 解密取错 GHASH 输入），因此本仓库的验证一律以**执行真实实现并与成熟实现逐字节对照**为准，不以固件内 `SelfTest()` 为准。
 
-> 2026-10-09 当前边界：BSV/费用池及登记签名的基础核验与物理授权、PIN/密钥导入导出；信用/Markdown/业务解释由 Keymaster 承担。见 [共同需求](../BSV8_VaultLinkProtocol/docs/密钥后端最小职责需求.md)。
+> 2026-10-09 当前边界：BSV/费用池及登记签名的基础核验与物理授权、PIN/密钥导入导出；信用/Markdown/业务解释由 Keymaster 承担。见 [共同需求](../VaultLinkProtocol/docs/密钥后端最小职责需求.md)。
 
 ## 文档
 

@@ -3,7 +3,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 python_bin="${ROCKEY_PYTHON:-}"
 if [ -z "$python_bin" ]; then
-  for candidate in "$root/.tools/venv/bin/python" "$root/../BSV8_VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol/.tools/venv/bin/python"; do
+  for candidate in "$root/.tools/venv/bin/python" "$root/../VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol/.tools/venv/bin/python"; do
     if [ -x "$candidate" ]; then python_bin="$candidate"; break; fi
   done
 fi

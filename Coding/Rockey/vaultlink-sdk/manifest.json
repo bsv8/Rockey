@@ -55,7 +55,7 @@
   },
   "sourceOverrides": {
     "reason": "渠道授权及空钱包连接状态施工工作区增量；消费副本由 files SHA256 固定，未宣称已提交",
-    "sourceDirectory": "/Users/david/Workspaces/BSV8_VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol",
+    "sourceDirectory": "/Users/david/Workspaces/VaultLinkProtocol/Coding/BSV8_VaultLinkProtocol",
     "snapshotSha256": "c5e58fd04297706d8516ab436d4a707dd2156eb8b2dd2fa4e7481c62e3956896",
     "files": {
       "device/core.hpp": {
