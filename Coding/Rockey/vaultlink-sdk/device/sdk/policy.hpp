@@ -54,11 +54,13 @@ class Policy {
   std::function<Bytes(const Bytes&)> digest;
   Bytes id_hash(const std::string& id)const{require(bool(digest),"archive-hash-adapter-required");return digest(Bytes(id.begin(),id.end()));}
   bool archived_id(const std::vector<Value>& entries,const std::string& id)const{
-    if(entries.empty())return false;auto hash=id_hash(id);return std::any_of(entries.begin(),entries.end(),[&](const Value& e){return e.at("idHash").binary(32)==hash;});
+    if(entries.empty()){return false;}
+    auto hash=id_hash(id);return std::any_of(entries.begin(),entries.end(),[&](const Value& e){return e.at("idHash").binary(32)==hash;});
   }
   Value session_value(const AppSession& s,bool v3)const{
     auto value=obj({{"id",s.id},{"owner",s.owner},{"limit",s.limit},{"used",s.used},{"revision",s.revision},{"active",s.active}});
-    if(v3)value.map.push_back({"archivedUsed",Value(s.archived_used)});return value;
+    if(v3){value.map.push_back({"archivedUsed",Value(s.archived_used)});}
+    return value;
   }
   Value channel_value(const Channel& c)const{return obj({{"id",c.id},{"owner",c.owner},{"kind",c.kind},{"network",bsv_network},{"paymentType",c.payment_type},{"singleLimit",c.single},{"defaultSessionLimit",c.total},{"revision",c.revision},{"enabled",c.enabled}});}
   Value pool_value(const PoolState& p)const{auto value=obj({{"id",p.id},{"binding",p.binding},{"paid",p.paid}});if(archived)value.map.emplace_back("archivedPaid",Value(p.archived_paid));return value;}
@@ -174,7 +176,7 @@ public:
       require((v.at("kind").string() == "app" ||
                v.at("kind").string() == "plugin") &&
                   v.at("network").string() == bsv_network &&
-                  (v.at("paymentType").string() == "p2pkh" || v.at("paymentType").string()=="feepool.connect" || v.at("paymentType").string()=="feepool.bitfs" || v.at("paymentType").string()=="bsv.standard" || v.at("paymentType").string()=="feepool.bitfs.cosigner" || v.at("paymentType").string()=="feepool.connect.cosigner"),
+                  (v.at("paymentType").string() == "p2pkh" || v.at("paymentType").string()=="p2pk" || v.at("paymentType").string()=="feepool.connect" || v.at("paymentType").string()=="feepool.bitfs" || v.at("paymentType").string()=="bsv.standard" || v.at("paymentType").string()=="feepool.bitfs.cosigner" || v.at("paymentType").string()=="feepool.connect.cosigner"),
               "unsupported");
       channels.push_back({v.at("id").string(), v.at("owner").string(),
                           v.at("singleLimit").integer(),
@@ -312,18 +314,30 @@ public:
     if(signing_enabled){result.map.emplace_back("network",Value(bsv_network));result.map.emplace_back("signing",Value::list(signing_channels));}
     if(archived){Value archive;archive.kind=Value::Map;archive.map.reserve(2);archive.map.emplace_back("payments",Value::list(archived_payments));archive.map.emplace_back("sessions",Value::list(archived_sessions));result.map.emplace_back("archive",std::move(archive));}return result;
   }
+  // Invoke only after the product migration gate permits ordinary operations.
+  // Constructor/export must not rewrite a hash-bound staged import bank.
+  void migrate_automatic_signing(){
+    require(alive,"policy-unavailable");auto next=signing_channels;bool changed=false;
+    for(auto& c:next)if(automatic_signing_operation(c.at("operation").string())&&c.at("mode").string()=="manual"){
+      auto rev=c.at("revision").integer();require(rev<0xfffffffe,"invalid-revision");
+      c.at("mode")=Value("automatic");c.at("revision")=Value(rev+1);changed=true;
+    }
+    if(changed){signing_channels=std::move(next);persist();}
+  }
   Value signing_view() const {require(alive,"policy-unavailable");return Value::list(signing_channels);}
   Value signing_channel(const std::string& id,const std::string& operation="") const {
     require(alive,"policy-unavailable");for(const auto& c:signing_channels)if(c.at("id").string()==id){require(operation.empty()||c.at("operation").string()==operation,"channel-conflict");return c;}throw Failure("channel-required");
   }
-  // 只由首次注册的真实设备确认调用。建议和修订号不覆盖现有策略。
+  // 已知操作静默注册；未知类型/身份替换拒绝，通用摘要不自动授权。
   void register_signing(const Value& rows,bool confirmed){
     require(alive&&rows.kind==Value::Array&&!rows.array.empty()&&rows.array.size()<=32,"invalid-signing-channel");
     for(size_t i=0;i<rows.array.size();++i)for(size_t j=0;j<i;++j)require(rows.array[i].at("id").string()!=rows.array[j].at("id").string(),"invalid-signing-channel");
     auto next=signing_channels;
     for(const auto& c:rows.array){inspect_signing_channel(c);auto it=std::find_if(next.begin(),next.end(),[&](const Value& v){return v.at("id").string()==c.at("id").string();});
       if(it!=next.end()){require(same_signing_registration(*it,c),"channel-conflict");continue;}
-      require(confirmed&&c.at("revision").integer()==1,"confirmation-required");require(next.size()<32,"capacity");next.push_back(c);
+      const bool automatic=automatic_signing_operation(c.at("operation").string());
+      require((confirmed||automatic)&&c.at("revision").integer()==1,"confirmation-required");require(next.size()<32,"capacity");
+      auto added=c;if(automatic)added.at("mode")=Value("automatic");next.push_back(added);
     }
     if(next.size()==signing_channels.size())return;
     signing_channels=std::move(next);signing_enabled=archived=true;persist();
@@ -331,15 +345,17 @@ public:
   // 不提供 USB 修改入口：只有本机设置菜单持有这个能力。
   void configure_signing(const std::string& id,const std::string& mode,uint64_t expected){
     auto current=signing_channel(id);require(current.at("revision").integer()==expected&&expected<0xfffffffe,"stale-config");
+    require(!automatic_signing_operation(current.at("operation").string())||mode=="automatic","operation-policy-automatic");
     current.at("mode")=Value(mode);current.at("revision")=Value(expected+1);inspect_signing_channel(current);
-    for(auto& c:signing_channels)if(c.at("id").string()==id)c=current;persist();
+    for(auto& c:signing_channels){if(c.at("id").string()==id)c=current;}
+    persist();
   }
   void configure(const Channel &c, bool confirmed) {
     require(alive, "policy-unavailable");
     identifier(c.id);
     identifier(c.owner);
     require(c.kind == "app" || c.kind == "plugin", "invalid-owner");
-    require(c.payment_type=="p2pkh"||c.payment_type=="feepool.connect"||c.payment_type=="feepool.bitfs"||c.payment_type=="bsv.standard"||c.payment_type=="feepool.bitfs.cosigner"||c.payment_type=="feepool.connect.cosigner","unsupported");
+    require(c.payment_type=="p2pkh"||c.payment_type=="p2pk"||c.payment_type=="feepool.connect"||c.payment_type=="feepool.bitfs"||c.payment_type=="bsv.standard"||c.payment_type=="feepool.bitfs.cosigner"||c.payment_type=="feepool.connect.cosigner","unsupported");
     require(c.revision > 0 && c.revision < UINT32_MAX, "invalid-revision");
     // 默认会话总额是 App owner 的设置，不可因新建第二个渠道产生冲突或重置。
     for(const auto &peer:channels)if(c.kind=="app"&&peer.kind=="app"&&peer.owner==c.owner&&peer.id!=c.id&&peer.total!=c.total){
@@ -375,12 +391,7 @@ public:
     bool found = false;
     uint64_t limit = 0;
     for (const auto &c : channels)
-      if (c.owner == owner && c.kind == "app" && c.enabled) {
-        if (found)
-          require(limit == c.total, "session-limit-conflict");
-        found = true;
-        limit = c.total;
-      }
+      if (c.owner == owner && c.kind == "app") found = true;
     require(found, "unknown-owner");
     sessions.push_back({id, owner, limit});
     persist();
@@ -408,24 +419,25 @@ public:
     for(const auto &p:payments)require(p.state!="reserved"||p.pool.id!=pool.id,"busy");
   }
   Budget quote(const std::string &channel_id, const std::string &session_id,
-               const std::string &owner, uint64_t amount) {
+               const std::string &owner, uint64_t amount, bool pool_operation=false) {
     require(alive, "policy-unavailable");
     auto &c = channel(channel_id);
     require(c.owner == owner, "invalid-channel");
+    if(pool_operation)require(c.kind=="plugin"&&(c.payment_type=="feepool.connect"||c.payment_type=="feepool.bitfs"||c.payment_type=="feepool.connect.cosigner"||c.payment_type=="feepool.bitfs.cosigner"),"invalid-operation");
     if (c.kind == "plugin") {
       require(session_id.empty(), "invalid-session");
-      return {amount > c.single, false, !c.enabled, 0, 0};
+      return { !pool_operation&&amount > c.single, false, !pool_operation&&!c.enabled, 0, 0};
     }
     auto &s = session(session_id);
     require(c.owner == owner && s.owner == owner && s.active,
             "invalid-session");
-    return {amount > c.single, amount > 0 && add(s.used, amount) > s.limit, !c.enabled,
-            s.used, s.limit};
+    (void)add(s.used, amount); // overflow/ledger invariant, not a cumulative cap
+    return {amount > c.single, false, !c.enabled, s.used, 0};
   }
   void reserve(const std::string &id, const std::string &channel_id,
                const std::string &session_id, const std::string &owner,
                uint64_t amount, const Bytes &hash, bool approve,
-               uint64_t raised = 0, const PoolInspection &pool = {}) {
+               uint64_t raised = 0, const PoolInspection &pool = {}, bool pool_operation=false) {
     identifier(id);
     require(hash.size() == 32 && std::any_of(hash.begin(), hash.end(),
                                              [](uint8_t c) { return c != 0; }),
@@ -437,7 +449,8 @@ public:
     require(payments.size() < 256, "capacity");
     check_pool(pool,amount);
     if(!pool.id.empty())require(!pool_state(pool.id).binding.empty()||pools.size()<256,"capacity");
-    auto q = quote(channel_id, session_id, owner, amount);
+    require(raised==0,"session-limits-removed");
+    auto q = quote(channel_id, session_id, owner, amount,pool_operation);
     require(!q.prompt() || approve, "confirmation-required");
     auto &c = channel(channel_id);
     if (c.kind == "plugin") {
@@ -449,13 +462,6 @@ public:
       return;
     }
     auto &s = session(session_id);
-    if (raised) {
-      require(approve && q.total && raised >= s.limit &&
-                  raised >= add(s.used, amount) && s.revision < UINT32_MAX - 1,
-              "invalid-limit");
-      s.limit = raised;
-      ++s.revision;
-    }
     s.used = add(s.used, amount);
     payments.push_back({id, channel_id, session_id, amount, c.revision,
                         s.revision, hash, "reserved",pool});

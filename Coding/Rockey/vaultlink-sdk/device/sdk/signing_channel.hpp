@@ -3,6 +3,7 @@
 namespace vaultlink {
 inline void signing_identifier(const std::string& s){require(!s.empty()&&s.size()<=96&&std::all_of(s.begin(),s.end(),[](char c){return (c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='.'||c=='_'||c==':'||c=='/'||c=='-';}),"invalid-id");}
 inline bool signing_operation(const std::string& op){return op=="identity.noise-proof"||op=="identity.peer-record"||op=="connect.identity-sign"||op=="connect.intent-sign"||op=="bitfs.wire-sign"||op=="channel.public-message"||op=="channel.hash-request"||op=="channel.private-message"||op=="software.digest-sign";}
+inline bool automatic_signing_operation(const std::string& op){return signing_operation(op)&&op!="software.digest-sign";}
 inline Value inspect_signing_channel(const Value& c){
  c.fields({"id","owner","kind","operation","mode","revision"});
  signing_identifier(c.at("id").string());signing_identifier(c.at("owner").string());

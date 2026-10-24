@@ -350,12 +350,23 @@
   X(kVlpReview, "Wallet approval", "钱包确认", "錢包確認", "錢包確認", "ウォレット確認") \
   X(kVlpChannel, "Channel", "渠道", "渠道", "渠道", "チャネル") \
   X(kVlpOwner, "App / plugin", "应用或插件", "應用或插件", "應用或插件", "アプリ") \
+  X(kVlpApp, "Calling App", "调用应用", "呼叫應用", "呼叫應用", "呼び出しアプリ") \
+  X(kVlpOrigin, "Calling origin", "调用来源", "呼叫來源", "呼叫來源", "呼び出し元") \
+  X(kVlpPublisher, "Verified publisher", "已验证发行人", "已驗證發行人", "已驗證發行人", "検証済み発行者") \
+  X(kVlpPaymentType, "Payment type", "支付类型", "支付類型", "支付類型", "支払種別") \
+  X(kVlpPurpose, "Business purpose", "业务用途", "業務用途", "業務用途", "取引の用途") \
+  X(kVlpOwnership, "Recipient ownership / risk", "收款归属与风险", "收款歸屬與風險", "收款歸屬與風險", "受取先とリスク") \
+  X(kVlpRecipient, "Recipient", "收款对象", "收款對象", "收款對象", "受取先") \
+  X(kVlpBusinessAmount, "Business amount excl fee", "业务金额不含手续费", "業務金額不含手續費", "業務金額不含手續費", "手数料を除く取引額") \
+  X(kVlpThirdPartyRisk, "Third-party recipient; risk of loss", "第三方收款，存在损失风险", "第三方收款，存在損失風險", "第三方收款，存在損失風險", "第三者への支払には損失リスクがあります") \
+  X(kVlpPublisherRisk, "Matches publisher; not a safety guarantee", "匹配发行人，不代表安全背书", "符合發行人，不代表安全背書", "符合發行人，不代表安全背書", "発行者に一致しても安全を保証しません") \
   X(kVlpSingleLimit, "Single limit (sats)", "单笔额度（聪）", "單筆額度（聰）", "單筆額度（聰）", "単筆上限") \
   X(kVlpSessionLimit, "Session limit (sats)", "会话额度（聪）", "會話額度（聰）", "會話額度（聰）", "接続上限") \
   X(kVlpUsed, "Used (sats)", "已消费（聪）", "已消費（聰）", "已消費（聰）", "使用済み") \
   X(kVlpFee, "Fee (sats)", "手续费（聪）", "手續費（聰）", "手續費（聰）", "手数料") \
-  X(kVlpAmount, "Payment (sats)", "支付金额（聪）", "支付金額（聰）", "支付金額（聰）", "支払金額") \
-  X(kVlpChange, "Change", "找零", "找零", "找零", "お釣り") \
+  X(kVlpNetwork, "Network", "网络", "網路", "網絡", "ネットワーク") \
+  X(kVlpAmount, "Spend incl fee (sats)", "实际花费含手续费（聪）", "實際花費含手續費（聰）", "實際花費含手續費（聰）", "手数料を含む支出") \
+  X(kVlpChange, "All own P2PKH returns", "所有自有 P2PKH 返还", "所有自有 P2PKH 返還", "所有自有 P2PKH 返還", "自分の P2PKH 返金") \
   X(kVlpSingleExceeded, "Single exceeded", "单笔超额", "單筆超額", "單筆超額", "単筆超過") \
   X(kVlpSessionExceeded, "Session exceeded", "会话超额", "會話超額", "會話超額", "接続超過") \
   X(kVlpEnabled, "Enabled", "启用", "啟用", "啟用", "有効") \

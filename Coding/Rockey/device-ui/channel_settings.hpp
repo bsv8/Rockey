@@ -22,10 +22,11 @@ class ChannelSettings {
   vaultlink::Value rows(){auto rows=signing();auto more=payments();rows.array.insert(rows.array.end(),more.array.begin(),more.array.end());return rows;}
   bool payment(){return current.kind!=vaultlink::Value::Null&&std::any_of(current.map.begin(),current.map.end(),[](const auto& p){return p.first=="paymentType";});}
   const char* modeLabel(const std::string& mode){return i18n::T(mode=="automatic"?i18n::Str::kChannelAutomatic:i18n::Str::kChannelManual);}
-  const char* fieldName(){using i18n::Str;return i18n::T(!payment()?Str::kChannelMode:field==0?Str::kChannelMode:field==1?Str::kChannelSingle:Str::kChannelTotal);}
+  const char* fieldName(){using i18n::Str;return i18n::T(!payment()?Str::kChannelMode:field==0?Str::kChannelMode:Str::kChannelSingle);}
   void beginEdit(){
+    if(!payment()&&vaultlink::automatic_signing_operation(current.at("operation").string()))return;
     if(!payment()||field==0){proposed=!payment()?current.at("mode").string():(current.at("enabled").flag()?"automatic":"manual");}
-    else {proposed=std::to_string(current.at(field==1?"singleLimit":"defaultSessionLimit").integer());proposed=std::string(20-proposed.size(),'0')+proposed;}
+    else {proposed=std::to_string(current.at("singleLimit").integer());proposed=std::string(20-proposed.size(),'0')+proposed;}
     digit=19;editing=true;changed=false;
   }
   void save(){
@@ -35,7 +36,7 @@ class ChannelSettings {
     else {
       Channel c{current.at("id").string(),current.at("owner").string(),current.at("singleLimit").integer(),current.at("defaultSessionLimit").integer(),rev+1,current.at("enabled").flag(),current.at("kind").string(),current.at("paymentType").string()};
       if(field==0)c.enabled=proposed=="automatic";
-      else {uint64_t n=0;for(char ch:proposed){require(n<=(UINT64_MAX-(ch-'0'))/10,"invalid-amount");n=n*10+(ch-'0');}if(field==1)c.single=n;else c.total=n;}
+      else {uint64_t n=0;for(char ch:proposed){require(n<=(UINT64_MAX-(ch-'0'))/10,"invalid-amount");n=n*10+(ch-'0');}c.single=n;}
       savePayment(c);
     }
     detail=false;editing=false;changed=false;
@@ -53,7 +54,7 @@ class ChannelSettings {
     try {
       if(!detail){auto all=rows();auto n=all.array.size();if(!n)return b==Btn::kB;
         selected%=n;if(b==Btn::kA)selected=(selected+n-1)%n;else if(b==Btn::kC)selected=(selected+1)%n;else if(b==Btn::kB&&ev==BtnEvent::kShortPress){current=all.array[selected];detail=true;field=0;}return false;}
-      if(!editing){unsigned n=payment()?(current.at("kind").string()=="app"?3:2):1;
+      if(!editing){unsigned n=payment()?2:1;
         if(b==Btn::kA)field=(field+n-1)%n;else if(b==Btn::kC)field=(field+1)%n;else if(b==Btn::kB&&ev==BtnEvent::kShortPress)beginEdit();return false;}
       if(b==Btn::kB&&ev==BtnEvent::kLongPress){if(changed)save();else editing=false;return false;}
       if(b==Btn::kB&&ev==BtnEvent::kShortPress){if(payment()&&field>0)digit=(digit+19)%20;return false;}
@@ -71,7 +72,7 @@ class ChannelSettings {
         else {selected%=all.array.size();const auto& x=all.array[selected];DrawKeyValue(c,"ID",x.at("id").string().c_str(),row++);DrawKeyValue(c,"Owner",x.at("owner").string().c_str(),row++);std::string count=std::to_string(selected+1)+" / "+std::to_string(all.array.size());DrawKeyValue(c,"",count.c_str(),row++);}}
       else {
         DrawKeyValue(c,"ID",current.at("id").string().c_str(),row++);
-        std::string old=!payment()?current.at("mode").string():field==0?(current.at("enabled").flag()?"automatic":"manual"):std::to_string(current.at(field==1?"singleLimit":"defaultSessionLimit").integer());
+        std::string old=!payment()?current.at("mode").string():field==0?(current.at("enabled").flag()?"automatic":"manual"):std::to_string(current.at("singleLimit").integer());
         DrawKeyValue(c,fieldName(),(!payment()||field==0)?modeLabel(old):old.c_str(),row++);
         if(editing){DrawKeyValue(c,"->",(!payment()||field==0)?modeLabel(proposed):proposed.c_str(),row++);if(payment()&&field>0){auto marker=std::to_string(20-digit)+" : "+proposed[digit];DrawKeyValue(c,"Digit (right)",marker.c_str(),row++);}DrawKeyValue(c,"",i18n::T(Str::kChannelSave),row++);}
       }

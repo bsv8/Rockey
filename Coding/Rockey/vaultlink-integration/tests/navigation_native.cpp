@@ -110,9 +110,13 @@ struct NavigationProbe {
     require(app.screen_==App::Screen::kChannels&&KeyStore::IsUnlocked(),"channel-menu-locked");
     app.OnButton(Btn::kB,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
     app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kLongPress);app.OnButton(Btn::kB,BtnEvent::kHoldRepeat);app.OnButton(Btn::kB,BtnEvent::kRelease);
-    {vlp::PolicyStore files;auto bank=vaultlink::decode(files.load(),65536);require(bank.at("signing").array[0].at("mode").string()=="manual"&&bank.at("signing").array[0].at("revision").integer()==2,"channel-mode-not-persisted");}
+    // Known operations stay automatic; a physical menu cannot turn this
+    // fixed policy into a manual channel or increment its revision.
+    {vlp::PolicyStore files;auto bank=vaultlink::decode(files.load(),65536);require(bank.at("signing").array[0].at("mode").string()=="automatic"&&bank.at("signing").array[0].at("revision").integer()==1,"known-operation-mode-changed");}
+    // Leave the read-only operation detail, select the payment channel and
+    // edit its single-payment limit through the real button state machine.
+    app.OnButton(Btn::kA,BtnEvent::kLongPress);app.OnButton(Btn::kA,BtnEvent::kHoldRepeat);app.OnButton(Btn::kA,BtnEvent::kRelease);
     app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
-    app.OnButton(Btn::kA,BtnEvent::kLongPress);app.OnButton(Btn::kA,BtnEvent::kHoldRepeat);app.OnButton(Btn::kA,BtnEvent::kRelease);app.OnButton(Btn::kB,BtnEvent::kShortPress);
     app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kShortPress);
     app.OnButton(Btn::kC,BtnEvent::kShortPress);app.OnButton(Btn::kB,BtnEvent::kLongPress);app.OnButton(Btn::kB,BtnEvent::kHoldRepeat);app.OnButton(Btn::kB,BtnEvent::kRelease);
     {vlp::PolicyStore files;auto bank=vaultlink::decode(files.load(),65536);require(bank.at("channels").array[0].at("singleLimit").integer()==101,"channel-amount-not-persisted");}

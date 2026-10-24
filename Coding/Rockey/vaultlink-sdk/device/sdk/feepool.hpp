@@ -68,7 +68,7 @@ inline PoolReview inspect_pool(const Bytes &raw,const std::vector<Bytes> &previo
     require((tx.outputs.size()==1 || tx.outputs.size()==2) && (tx.outputs.size()==1 || tx.outputs[1].script==own) &&
       std::all_of(prevouts.begin(),prevouts.end(),[&](const Output &o){return o.script==own;}),"invalid-funding");
     auto keys=pool_roles(tx.outputs[0].script,family);require(keys[family=="connect"?1:0]==public_key,"wrong-key");
-    r.locked=tx.outputs[0].amount;require(r.locked>0,"invalid-amount");r.review.change=tx.outputs.size()==2?tx.outputs[1].amount:0;
+    r.locked=tx.outputs[0].amount;require(r.locked>0,"invalid-amount");r.review.change=tx.outputs.size()==2?tx.outputs[1].amount:0;r.review.amount=add(r.locked,r.review.fee);
   } else {
     require(tx.inputs.size()==1 && tx.inputs[0].vout==0,"invalid-pool-input");
     auto keys=pool_roles(prevouts[0].script,family);auto payer=keys[family=="connect"?1:0];require(role=="payer"?payer==public_key:(payer!=public_key && std::find(keys.begin(),keys.end(),public_key)!=keys.end()),"wrong-key");

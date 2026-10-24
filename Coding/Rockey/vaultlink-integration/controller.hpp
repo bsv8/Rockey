@@ -4,6 +4,7 @@
 #include "erased_migration.hpp"
 #include "provision_runtime.hpp"
 #include "display_text.hpp"
+#include "payment_display.hpp"
 #include "board/buttons.h"
 #include "board/display.h"
 #include "crypto/rand.h"
@@ -69,7 +70,7 @@ class Controller final : public ApprovalUI {
   Approval answer;
   std::vector<std::string> lines;
   size_t position = 0, furthest = 0;
-  bool visible = false, pairing = false, redraw = false, raise = false, remember = false;
+  bool visible = false, pairing = false, redraw = false, raise = false, remember = false, automatic_notice = false;
   int pair_answer = 0;
   uint64_t raised = 0;
   int drawn_percent = -1;
@@ -83,6 +84,7 @@ class Controller final : public ApprovalUI {
   static int random(void*, unsigned char* out, size_t count) { rand::Fill(out, count); return 0; }
   static const char* label(const std::string& key) {
     using i18n::Str;
+    if(const auto* title=payment_fact_label(key))return title;
     Str s = Str::kVlpChannel;
     if(key=="mode")s=Str::kChannelMode;
     else if(key=="owner")s=Str::kVlpOwner;
@@ -119,6 +121,9 @@ class Controller final : public ApprovalUI {
     else if (key == "poolStage") s = Str::kVlpPoolStage;
     else if (key == "cumulativePaid") s = Str::kVlpPoolPaid;
     else if (key == "lockedAmount") s = Str::kVlpPoolLocked;
+    else if (key == "wallet") s = Str::kInfoPublicKey;
+    else if (key == "network") s = Str::kVlpNetwork;
+    else if (key == "mode") s = Str::kChannelMode;
     else if (key == "fee") s = Str::kVlpFee;
     else if (key == "amount") s = Str::kVlpAmount;
     else if (key == "change" || key == "changeScript") s = Str::kVlpChange;
@@ -137,6 +142,10 @@ class Controller final : public ApprovalUI {
   }
  public:
   explicit Controller(Buttons& b) : buttons(b) {}
+  // Runtime shutdown invokes ApprovalUI callbacks on this controller. Destroy
+  // runtimes while UI members are still alive, not during reverse member
+  // destruction after lines/hold/pin have already been torn down.
+  ~Controller() override { lock(); }
   bool active_ui() const { return visible; }
   bool connected()const{return connected_;}
   bool import_busy()const{return (visible&&!pairing)||(provision_runtime&&provision_runtime->receiving());}
@@ -250,6 +259,15 @@ class Controller final : public ApprovalUI {
   }
   bool button(Btn b, BtnEvent event) {
     if (!visible) return false;
+    if(automatic_notice) {
+      if(b==Btn::kB&&event==BtnEvent::kShortPress){clear();return true;}
+      if(event==BtnEvent::kShortPress||event==BtnEvent::kHoldRepeat){
+        if(b==Btn::kA&&position>0)--position;
+        if(b==Btn::kC&&position+6<lines.size())++position;
+        redraw=true;
+      }
+      return true; // display navigation is never an approve/deny command
+    }
     if(pairing&&pair_answer>0)return true;
     if(entering_pin) {
       if(b==Btn::kA&&event==BtnEvent::kLongPress) {
@@ -315,8 +333,10 @@ class Controller final : public ApprovalUI {
     }
     return true;
   }
-  void begin(const Review& r) override {
-    sound::Notify(true,::millis());
+  void begin(const Review& r) override { present(r,false); }
+  void present(const Review& r,bool automatic) {
+    automatic_notice=automatic;
+    sound::Notify(!automatic,::millis());
 #if defined(ROCKEY_DEV_BUTTON_API)
     ++testReviews;
 #endif
@@ -332,17 +352,18 @@ class Controller final : public ApprovalUI {
     if (!r.channel.empty()) add(i18n::T(i18n::Str::kVlpChannel), r.channel);
     if (!r.owner.empty()) add(i18n::T(i18n::Str::kVlpOwner), r.owner);
     for (const auto& fact : r.facts) {
-      auto value=fact.second;
+      auto value=payment_fact_value(fact.first,fact.second);
       if(fact.first=="operation")value=i18n::T(value=="migration.import-key"?i18n::Str::kImportTitle:value=="migration.export"?i18n::Str::kOpMigrationExport:(value=="migration.erase"||value=="migration.recover-erased")?i18n::Str::kEraseTitle:value=="local-secret.seal"?i18n::Str::kOpSecretSeal:value=="local-secret.open"?i18n::Str::kOpSecretOpen:value=="connect.identity-sign"?i18n::Str::kOpIdentityProve:value=="identity.noise-proof"?i18n::Str::kOpNoiseProof:value=="identity.peer-record"?i18n::Str::kOpPeerRecord:value=="bitfs.wire-sign"?i18n::Str::kOpBitfsWire:value=="channel.public-message"?i18n::Str::kOpChannelPublic:value=="channel.hash-request"?i18n::Str::kOpChannelHash:value=="channel.private-message"?i18n::Str::kOpChannelPrivate:value=="channel.seal"?i18n::Str::kOpChannelSeal:value=="channel.open"?i18n::Str::kOpChannelOpen:i18n::Str::kOpIdentityAuthorize);
       else if(fact.first=="wireKind")value=i18n::T(value=="1"?i18n::Str::kBitfsQuoteSign:value=="5"?i18n::Str::kBitfsAuthorizeSign:value=="6"?i18n::Str::kBitfsDeliverySign:value=="8"?i18n::Str::kBitfsClaimSign:value=="9"?i18n::Str::kBitfsReceiptSign:value=="10"?i18n::Str::kBitfsRetrievalSign:i18n::Str::kBitfsResultSign);
       else if(fact.first=="poolStage")value=i18n::T(value=="fund"?i18n::Str::kVlpFunding:i18n::Str::kVlpPoolState);
       else if(fact.first=="poolFamily")value=value=="connect"?"Connect":"BitFS";
+      else if(fact.first=="mode")value=i18n::T(value=="automatic"?i18n::Str::kChannelAutomatic:i18n::Str::kChannelManual);
       add(fact.first == "pair" ? i18n::T(i18n::Str::kPairHint) : label(fact.first), value);
     }
     visible = redraw = true; drawn_percent=-1; hold.Reset(); buttons.ArmReleaseGate();
   }
   Approval decision() override { return answer; }
-  void clear() override { visible = false; pairing = false; lines.clear(); hold.Reset(); answer = {};pin.clear();entering_pin=false;first_pin.Clear();confirming_new_pin=false;pin_frame=false; }
+  void clear() override { automatic_notice=false; visible = false; pairing = false; lines.clear(); hold.Reset(); answer = {};pin.clear();entering_pin=false;first_pin.Clear();confirming_new_pin=false;pin_frame=false; }
   void start_new_pin(){
     vaultlink::require(pin.begin_local(ROCKEY_PIN_DEFAULT_DIGITS,[this](const char* p,size_t n){
       if(!confirming_new_pin){memcpy(first_pin.data(),p,n);return true;}
@@ -350,7 +371,11 @@ class Controller final : public ApprovalUI {
       provision_keys.set_pin(p,n);return true;
     }),"invalid-pin");
   }
-  void automatically_approved(const Review&) override { sound::Notify(false,::millis()); }
+  void automatically_approved(const Review& r) override {
+    present(r,true);
+    // Render before the private-key operation, not only on the next UI tick.
+    draw();
+  }
   void draw() {
     if(entering_pin&&pin_frame&&pin_frame_confirm==confirming_new_pin&&pin_frame_entered==pin.entered()){
       Display::Fill(Rect{150,112,30,FontLineHeight(FontRole::kSmall)},color::kBlack);
@@ -382,7 +407,8 @@ class Controller final : public ApprovalUI {
       const char *mode=i18n::T(remember?i18n::Str::kVlpDecisionSession:i18n::Str::kVlpDecisionOnce);
       Display::DrawText(FontRole::kSmall,6,176,mode,strlen(mode),color::kYellow,color::kBlack);
     }
-    ui::DrawFooter(i18n::T(i18n::Str::kVlpDenyScroll), i18n::T(review.can_remember?i18n::Str::kVlpDecisionToggle:i18n::Str::kBtnHoldConfirm), i18n::T(i18n::Str::kBtnScrollNext));
+    if(automatic_notice)ui::DrawFooter(i18n::T(i18n::Str::kVlpDenyScroll),"OK",i18n::T(i18n::Str::kBtnScrollNext));
+    else ui::DrawFooter(i18n::T(i18n::Str::kVlpDenyScroll), i18n::T(review.can_remember?i18n::Str::kVlpDecisionToggle:i18n::Str::kBtnHoldConfirm), i18n::T(i18n::Str::kBtnScrollNext));
     // 页脚已显示长按提示；进度放在其上方，不能被页脚覆盖。
     draw_progress(hold.Percent(::millis()));
     redraw = false;

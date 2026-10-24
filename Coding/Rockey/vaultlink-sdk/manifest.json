@@ -8,18 +8,18 @@
     "device/core.hpp": "89c20bbf2ddfb4de6cc2a215fb80ce15b9752e9995edff8036c788d2e7c3e8c1",
     "device/core_test.cpp": "6c41fda7f9a287395ccb120c3e91e4c47eef84ce9f705913959ec27b626fba8a",
     "device/sdk/arduino_serial.hpp": "0b1466f1b2856a7b8d5727a8672a96ce4cce7a6e5710e5d61e201b1df3c4855a",
-    "device/sdk/bsv.hpp": "2633fb0e1cc152bc3703b75937a759271193099525796c93e50f9a951883f09d",
+    "device/sdk/bsv.hpp": "e3454e1827a6dca5835712b7b6db6a543cd6a5b1c5d50f28eb1871f09dbaa09b",
     "device/sdk/cbor.hpp": "dbc31845a745937976972ce35e4b2be8bae19b01272f5f2be2c1ce423fefcff3",
     "device/sdk/crypto.hpp": "a7c273a67ebe9a3ded3d84f7e2c8767bbdc75d59be4d470a56a7ecc815138441",
     "device/sdk/endpoint.hpp": "b7bf8f43e19107c20f786a3f301d1432ae2c83d764ca11bce42014c7f5c6e4ee",
-    "device/sdk/feepool.hpp": "1366b4f7843d75478436b9ef6b482b15cedef085fec46ba147300fdedbf70144",
+    "device/sdk/feepool.hpp": "fc54dff8dc12cbcaa1f02ed20ef2ab216b52f0b563e8bdc3a9cc54e0dafc9fc4",
     "device/sdk/fragments.hpp": "6b743e1f0db7e8db4194da9836e7d64e7e119ff27e609389547909955be14048",
     "device/sdk/local_secret.hpp": "ff44734c3b3fcbd686f542655be75c357426d722347f749dcb05c3dd0ecccee1",
-    "device/sdk/policy.hpp": "d0da9cf7a605d3fdb64a76db358c062ac5975f7c3d5127e6312b90a798ff1636",
-    "device/sdk/standard.hpp": "2010efa193e0b4dc9e8e9f585eb3e3cf645c4c67a87d31dfca78a6965a5d30df",
+    "device/sdk/policy.hpp": "e082a496fdbeeb3e38684e7707d53a19da943d2a38f2829fc5e6ef8b97c15dea",
+    "device/sdk/standard.hpp": "7707127737baa3dc6422920f4091cf24e870a2c0b8ce088deba74b5766461984",
     "device/sdk/connect_envelope.hpp": "0e82b75bb44db39aac2976c69e907b24d58c794de148f4a9c0ea27c7e15341fb",
     "device/jcs_test.cpp": "234ebf380c298eab4dba4ec5ab784799a57c2d84fcaf9cd37fa952433f1ad7ae",
-    "device/sdk/channel.hpp": "6ab5316ad21d34e6a7e0c4225384375422c92145ef308109f1d34e4846779dd9",
+    "device/sdk/channel.hpp": "a926b8ffdd39d824b7d356bb7e2d9d4c851a2c6af09524da056aeff25d3c8f25",
     "device/sdk/jcs.hpp": "bbbc6e4988b0ff00eaf2300de0de9594ccec852cc69d1c512a84e85db54cf021",
     "device/third_party/double-conversion/string-to-double.h": "1976310fdd04e3bc350c5f8f4b443ba0287abb4004b318f048ac41611278e4c9",
     "device/third_party/double-conversion/utils.h": "ab745c4b74fdd27d967d8026d082bff3ef59ca2ca581c163dcf266bebd413795",
@@ -43,7 +43,7 @@
     "device/third_party/double-conversion/bignum.h": "6b63faea13f36f6026b56855aa8d28329ba1a91c564b9abc94b21608ca42cbfb",
     "device/third_party/double-conversion/fast-dtoa.h": "523d778935995dea5d21e59f55629ba40eaf68dedfe99e82b71efd4ae75f4e40",
     "device/third_party/double-conversion/bignum-dtoa.cc": "85a803ff5eaea5acc840182ab03dc1205b77519cb61d6615682314eb8aa90914",
-    "device/sdk/bitfs_wire.hpp": "116342ebcc9829a028bad4d6027773e96745f1be124d543bf33f373bb33e5e67",
+    "device/sdk/bitfs_wire.hpp": "57b23623234c843ff0b2ce673e7077b501811d7b8a5038591fc944724015cebc",
     "device/sdk/network_identity.hpp": "6cc5ae8c022958ba0dd1e60af3af105978d15ce832de2d7fd024c842d7be2e60",
     "device/policy_transfer_test.cpp": "d0ec18fd4fa22cbce6de31496fa2aa15c817ad18e67b6217c1ae7290364e521f",
     "device/migration_journal_test.cpp": "ed46de5795aa872486e49fd60531dc96fa85059a2796500c9bce32e0c65d1e82",
@@ -51,7 +51,8 @@
     "device/sdk/migration_import.hpp": "9295e7653afa72992163994b41f9c6f676439c4cb902da40cd5a1b50130d0d3a",
     "device/policy_archive_test.cpp": "3ee4753731056d2f492ba003b4826e0e546311ca2c6e45be9617737487a0cb9a",
     "device/cbor_memory_test.cpp": "ac466902b1c6b497759491454fb70992e8523c069efe800e12fafd2c02fd3706",
-    "device/sdk/signing_channel.hpp": "fe4185cf30d0a5edb6c89cd40f5fdbed380bf463dc4af7d1915fa293ac894710"
+    "device/sdk/signing_channel.hpp": "88ca41b9e79bdadcf5001b68cac54ac767d1d8aaf0636bad3e2326d1a1206604",
+    "device/sdk/connect_payment.hpp": "ef88dda4231d2e7fb589890bf11f4f6a0792f0e7efa6959536f025ae811ba144"
   },
   "sourceOverrides": {
     "reason": "渠道授权及空钱包连接状态施工工作区增量；消费副本由 files SHA256 固定，未宣称已提交",
@@ -207,6 +208,34 @@
     "device/migration_journal_test.cpp": {
       "sha256": "ed46de5795aa872486e49fd60531dc96fa85059a2796500c9bce32e0c65d1e82",
       "reason": "一次提交迁移规则的工作区源码增量；实体授权仍由 RocKey 控制"
+    }
+  },
+  "operationPolicyOverlay": {
+    "baseCommit": "184e52154e95bcc843c22eaa98c26c60c0450618",
+    "sourceHashes": {
+      "src/payment.ts": "920057da46c757119aade0d51eb8ed14a1b9b4e43c9f6fd62cf7cb293ef793a4",
+      "src/signing-channel.ts": "a3fa4d39fee2ab9085901f00506fc421beede2834b1266a16a26e011c0eb8b37",
+      "src/bitfs-wire.ts": "c4f26859a0ab2bba73d50c806b83e8d1870dcb8725a51db223b60e9da3b74d8b",
+      "src/bsv.ts": "e1cfd89c842576858f33fd45d8a3ac5a2984a775e24bb29eda6ac2362eef9d2a",
+      "src/standard.ts": "a5c82551078fad231b8837e804bd9c67f294025b982a5b3a3b6228ab8bb98dfb",
+      "device/sdk/bsv.hpp": "e3454e1827a6dca5835712b7b6db6a543cd6a5b1c5d50f28eb1871f09dbaa09b",
+      "device/sdk/connect_payment.hpp": "ef88dda4231d2e7fb589890bf11f4f6a0792f0e7efa6959536f025ae811ba144",
+      "device/sdk/standard.hpp": "7707127737baa3dc6422920f4091cf24e870a2c0b8ce088deba74b5766461984",
+      "device/sdk/feepool.hpp": "fc54dff8dc12cbcaa1f02ed20ef2ab216b52f0b563e8bdc3a9cc54e0dafc9fc4",
+      "device/sdk/policy.hpp": "e082a496fdbeeb3e38684e7707d53a19da943d2a38f2829fc5e6ef8b97c15dea",
+      "device/sdk/signing_channel.hpp": "88ca41b9e79bdadcf5001b68cac54ac767d1d8aaf0636bad3e2326d1a1206604",
+      "device/sdk/channel.hpp": "a926b8ffdd39d824b7d356bb7e2d9d4c851a2c6af09524da056aeff25d3c8f25",
+      "device/sdk/bitfs_wire.hpp": "57b23623234c843ff0b2ce673e7077b501811d7b8a5038591fc944724015cebc"
+    },
+    "files": {
+      "device/sdk/policy.hpp": "e082a496fdbeeb3e38684e7707d53a19da943d2a38f2829fc5e6ef8b97c15dea",
+      "device/sdk/signing_channel.hpp": "88ca41b9e79bdadcf5001b68cac54ac767d1d8aaf0636bad3e2326d1a1206604",
+      "device/sdk/channel.hpp": "a926b8ffdd39d824b7d356bb7e2d9d4c851a2c6af09524da056aeff25d3c8f25",
+      "device/sdk/bitfs_wire.hpp": "57b23623234c843ff0b2ce673e7077b501811d7b8a5038591fc944724015cebc",
+      "device/sdk/bsv.hpp": "e3454e1827a6dca5835712b7b6db6a543cd6a5b1c5d50f28eb1871f09dbaa09b",
+      "device/sdk/connect_payment.hpp": "ef88dda4231d2e7fb589890bf11f4f6a0792f0e7efa6959536f025ae811ba144",
+      "device/sdk/standard.hpp": "7707127737baa3dc6422920f4091cf24e870a2c0b8ce088deba74b5766461984",
+      "device/sdk/feepool.hpp": "fc54dff8dc12cbcaa1f02ed20ef2ab216b52f0b563e8bdc3a9cc54e0dafc9fc4"
     }
   }
 }

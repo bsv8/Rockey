@@ -165,10 +165,9 @@ inline Review inspect(const Bytes &raw, const std::vector<Bytes> &evidence,
     total_out = add(total_out, o.amount);
     if (o.script == own)
       review.change = add(review.change, o.amount);
-    else
-      review.amount = add(review.amount, o.amount);
   }
   require(total_in >= total_out, "negative-fee");
+  review.amount = total_in - review.change;
   review.fee = total_in - total_out;
   for (size_t i = 0; i < t.inputs.size(); ++i)
     review.digests.push_back(sighash(t, i, prev[i]));

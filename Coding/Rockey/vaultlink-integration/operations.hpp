@@ -3,6 +3,7 @@
 #include "../vaultlink-sdk/device/sdk/policy.hpp"
 #include "../vaultlink-sdk/device/sdk/feepool.hpp"
 #include "../vaultlink-sdk/device/sdk/standard.hpp"
+#include "../vaultlink-sdk/device/sdk/connect_payment.hpp"
 #include "../vaultlink-sdk/device/sdk/local_secret.hpp"
 #include "../vaultlink-sdk/device/sdk/connect_envelope.hpp"
 #include "../vaultlink-sdk/device/sdk/channel.hpp"
@@ -28,21 +29,25 @@ class PaymentService {
   };
   class Action final : public vaultlink::Operation {
     ApprovalUI &ui;
-    bool prompt, finished = false, started = false;
+    bool prompt, quiet, finished = false, started = false, notified = false;
     Review review;
     Approval answer;
     std::function<vaultlink::Value(const Approval &)> run;
     std::function<void(const Approval &)> record;
     bool recorded=false;
+    void present_automatic_spend(){
+      if(!prompt&&!quiet&&!notified&&review.operation.rfind("tx.",0)==0){ui.automatically_approved(review);notified=true;}
+    }
    public:
     Action(ApprovalUI &u, Review review, bool ask,
            std::function<vaultlink::Value(const Approval &)> execute,
-           std::function<void(const Approval &)> decided = {}, bool deny = false)
-        : ui(u), prompt(ask), review(std::move(review)), run(std::move(execute)),record(std::move(decided)) {
+           std::function<void(const Approval &)> decided = {}, bool deny = false, bool silent = false)
+        : ui(u), prompt(ask), quiet(silent), review(std::move(review)), run(std::move(execute)),record(std::move(decided)) {
       vaultlink::require(prompt||!this->review.requires_pin,"physical-confirmation-required");
       if (!prompt) answer.state = deny ? Approval::Denied : Approval::Once;
     }
     bool ready() override {
+      present_automatic_spend();
       if (prompt) {
         if (!started) { ui.begin(review); started = true; }
         answer = ui.decision();
@@ -55,11 +60,12 @@ class PaymentService {
       return answer.state==Approval::Once||answer.state==Approval::Raise||answer.state==Approval::AllowSession;
     }
     vaultlink::Value execute() override {
+      present_automatic_spend();
       vaultlink::require(!review.requires_pin||(answer.pin_verified&&answer.state==Approval::Once),"physical-confirmation-required");
       auto result = run(answer);
       // 查询/会话记账不属于授权；仅成功执行的自动授权产生提示，重放缓存
       // 与失败请求不会再次响。人工提示由实际 UI begin 负责。
-      if(!prompt&&!review.operation.empty())ui.automatically_approved(review);
+      if(!prompt&&!quiet&&!notified&&!review.operation.empty()&&!vaultlink::automatic_signing_operation(review.operation)&&review.operation!="signing.register")ui.automatically_approved(review);
       cancel();
       return result;
     }
@@ -94,14 +100,17 @@ class PaymentService {
   vaultlink::Prepared prepare(const std::string &op, const vaultlink::Value &body,
                              const vaultlink::Bytes &hash, const vaultlink::Value* registered=nullptr) {
     using namespace vaultlink;
+    // MigrationRequests has already admitted this ordinary operation. Do not
+    // migrate in the constructor: staged import/export hashes bind the bank.
+    if(op=="signing.register"||op=="signing.execute"||op=="signing.list")policy.migrate_automatic_signing();
     if(op=="signing.register"){
       body.fields({"network","channels"});require(body.at("network").string()==network,"network-identity-mismatch");require(commitment("signing-register",body)==hash,"invalid-commitment");
       auto rows=body.at("channels");require(rows.kind==Value::Array&&!rows.array.empty()&&rows.array.size()<=32,"invalid-signing-channel");
-      Review r{op,"","",{{"network",network}}};bool fresh=false;
-      for(const auto& c:rows.array){inspect_signing_channel(c);bool exists=false;for(const auto& old:policy.signing_view().array)if(old.at("id").string()==c.at("id").string()){require(same_signing_registration(old,c),"channel-conflict");exists=true;}
-        if(!exists){fresh=true;r.facts.push_back({"channelId",c.at("id").string()});r.facts.push_back({"owner",c.at("owner").string()});r.facts.push_back({"mode",c.at("mode").string()});}}
-      if(!fresh)r.operation.clear();
-      return {"signing-register",body,std::make_unique<Action>(ui,r,fresh,[this,rows](const Approval&){policy.register_signing(rows,true);return obj({{"channels",policy.signing_view()}});})};
+      // Registration is a typed operation, not a user setting or a digest
+      // permission. Identity conflicts remain fatal before persistence.
+      for(const auto& c:rows.array){inspect_signing_channel(c);require(automatic_signing_operation(c.at("operation").string()),"unsupported");
+        for(const auto& old:policy.signing_view().array)if(old.at("id").string()==c.at("id").string())require(same_signing_registration(old,c),"channel-conflict");}
+      return {"signing-register",body,std::make_unique<Action>(ui,Review{},false,[this,rows](const Approval&){policy.register_signing(rows,false);return obj({{"channels",policy.signing_view()}});})};
     }
     if(op=="signing.list"){
       body.fields({});require(commitment("signing-list",body)==hash,"invalid-commitment");return {"signing-list",body,std::make_unique<Action>(ui,Review{},false,[this](const Approval&){return obj({{"channels",policy.signing_view()}});})};
@@ -175,7 +184,8 @@ class PaymentService {
         {"objectHash",to_hex(checked.digest)}}};
       if(identity)for(const auto &name:checked.claims)r.facts.push_back({"claim",name});
       else {r.facts.push_back({"contentType",checked.content_type});r.facts.push_back({"contentLength",std::to_string(checked.content_length)});r.facts.push_back({"contentHash",to_hex(checked.content_digest)});}
-      // One physical decision per envelope; no persistent or session-wide identity approval.
+      // Typed envelope/content/network validation remains independent of the
+      // automatic operation policy; no prompt or automatic-payment sound.
       return {profile,body,std::make_unique<Action>(ui,r,manual,[this,body,identity](const Approval &){
         auto current=inspect_connect(identity?"identity":"intent",body,key.public_key(),network);
         return obj({{"publicKey",key.public_key()},{"signature",key.sign(current.digest)}});
@@ -209,7 +219,7 @@ class PaymentService {
     if (op == "payment.configure") {
       body.fields({"id", "owner", "kind", "network", "paymentType", "enabled", "singleLimit", "defaultSessionLimit", "revision"});
       auto payment_type=body.at("paymentType").string();
-      require(body.at("network").string() == (network) && (payment_type == "p2pkh" || payment_type == "feepool.connect" || payment_type == "feepool.bitfs" || payment_type == "bsv.standard" || payment_type == "feepool.bitfs.cosigner" || payment_type == "feepool.connect.cosigner"), "unsupported");
+      require(body.at("network").string() == (network) && (payment_type == "p2pkh" || payment_type == "p2pk" || payment_type == "feepool.connect" || payment_type == "feepool.bitfs" || payment_type == "bsv.standard" || payment_type == "feepool.bitfs.cosigner" || payment_type == "feepool.connect.cosigner"), "unsupported");
       Channel c{body.at("id").string(), body.at("owner").string(), body.at("singleLimit").integer(),
                 body.at("defaultSessionLimit").integer(), body.at("revision").integer(),
                 body.at("enabled").flag(), body.at("kind").string(), payment_type};
@@ -238,13 +248,11 @@ class PaymentService {
       }
       uint64_t limit = 0; bool found = false;
       for (const auto &c : snapshot.at("channels").array) {
-        if (c.at("owner").string() != owner || c.at("kind").string() != "app" || !c.at("enabled").flag()) continue;
-        auto value = c.at("defaultSessionLimit").integer();
-        require(!found || limit == value, "session-limit-conflict"); limit = value; found = true;
+        if (c.at("owner").string() != owner || c.at("kind").string() != "app") continue;
+        found = true;
       }
       require(found, "unknown-owner");
-      Review r{op, "", owner, {{"sessionId", id}, {"sessionLimit", std::to_string(limit)}}};
-      return {"payment-session", body, std::make_unique<Action>(ui, r, true, [this, id, owner, limit](const Approval &) {
+      return {"payment-session", body, std::make_unique<Action>(ui, Review{}, false, [this, id, owner, limit](const Approval &) {
         policy.start(id, owner, true);
         return obj({{"opened", true}, {"sessionLimit", limit}});
       })};
@@ -287,11 +295,12 @@ class PaymentService {
       auto result=obj({{"poolId",pool.id},{"paid",pool.paid},{"binding",pool.binding.empty()?Value():Value(pool.binding)}});
       return {"payment-pool-read",body,std::make_unique<Action>(ui,Review{},false,[result](const Approval &){return result;})};
     }
+    const bool is_connect=op=="tx.connect-payment";
     bool is_standard=op=="tx.standard-payment";
     const bool is_opening=op=="tx.feepool-bitfs-opening";
     const bool is_authorization=op=="tx.feepool-bitfs-authorize";
     bool is_pool=op=="tx.feepool-connect"||op=="tx.feepool-bitfs"||is_authorization||is_opening;
-    if (op != "tx.p2pkh-payment" && !is_pool && !is_standard) throw Failure("unsupported");
+    if (op != "tx.p2pkh-payment" && !is_pool && !is_standard && !is_connect) throw Failure("unsupported");
     std::string role="payer";bool has_role=false;
     if(is_opening){body.fields({"rawTx","prevTransactions","channelId","paymentId","sessionId","stage","role","openingRequest"});role=body.at("role").string();require(role=="cosigner"&&body.at("stage").string()=="state"&&body.at("prevTransactions").kind==Value::Array&&body.at("prevTransactions").array.empty(),"invalid-opening");}
     else if(is_pool){for(const auto &f:body.map)if(f.first=="role")has_role=true;
@@ -299,16 +308,17 @@ class PaymentService {
       else {if(is_authorization)body.fields({"rawTx", "prevTransactions", "channelId", "paymentId", "sessionId", "stage", "authorization"});else body.fields({"rawTx", "prevTransactions", "channelId", "paymentId", "sessionId", "stage"});}
       if(is_authorization)require(role=="payer"&&body.at("stage").string()=="state","invalid-authorization");
     }
+    else if(is_connect)body.fields({"rawTx", "prevTransactions", "channelId", "paymentId", "sessionId","connectPayment"});
     else body.fields({"rawTx", "prevTransactions", "channelId", "paymentId", "sessionId"});
     auto raw = body.at("rawTx").binary();
     const auto &prev = body.at("prevTransactions");
-    require(prev.kind == Value::Array && prev.array.size() <= (is_standard?10:4), "invalid-prevout");
+    require(prev.kind == Value::Array && prev.array.size() <= (is_connect?16:is_standard?10:4), "invalid-prevout");
     std::vector<Bytes> evidence;
     for (const auto &v : prev.array) evidence.push_back(v.binary());
     auto family=op=="tx.feepool-connect"?std::string("connect"):std::string("bitfs");
     PoolReview pool_review;PoolInspection pool;
-    vaultlink::Review review;
-    auto profile=is_opening?std::string("bsv-feepool-bitfs-opening"):is_authorization?std::string("bsv-feepool-bitfs-authorization"):is_pool?"bsv-feepool-"+family:std::string(is_standard?"bsv-standard-payment":"bsv-payment-context");
+    vaultlink::Review review;ConnectPaymentReview connect_review;
+    auto profile=is_connect?std::string("bsv-connect-payment"): is_opening?std::string("bsv-feepool-bitfs-opening"):is_authorization?std::string("bsv-feepool-bitfs-authorization"):is_pool?"bsv-feepool-"+family:std::string(is_standard?"bsv-standard-payment":"bsv-payment-context");
     if(is_pool) {
       pool_review=is_opening?inspect_bitfs_opening(raw,body.at("openingRequest").binary(),key.public_key()):is_authorization?inspect_bitfs_authorization(raw,evidence,key.public_key(),body.at("authorization")):inspect_pool(raw,evidence,key.public_key(),family,body.at("stage").string(),role);review=pool_review.review;
       if(!pool_review.pool.empty()) {
@@ -316,42 +326,56 @@ class PaymentService {
         review.amount=pool.paid-pool.previous_paid;
         policy.check_pool(pool,review.amount);
       }
-    }else review=is_standard?inspect_standard(raw,evidence,key.public_key()):inspect(raw,evidence,key.public_key());
+    }else if(is_connect){connect_review=inspect_connect_payment(raw,evidence,key.public_key(),body.at("connectPayment"));review=connect_review.review;}
+    else review=is_standard?inspect_standard(raw,evidence,key.public_key()):inspect(raw,evidence,key.public_key());
     auto id = body.at("paymentId").string(), channel_id = body.at("channelId").string();
     auto configured = channel(channel_id);
-    require(configured.at("paymentType").string()==(is_pool?"feepool."+family+(role=="cosigner"?".cosigner":""):std::string(is_standard?"bsv.standard":"p2pkh")),"invalid-channel");
+    require(configured.at("paymentType").string()==(is_pool?"feepool."+family+(role=="cosigner"?".cosigner":""):std::string(is_connect?connect_review.type:is_standard?"bsv.standard":"p2pkh")),"invalid-channel");
+    if(is_connect)require(configured.at("kind").string()=="app"&&configured.at("owner").string()=="publisher."+connect_review.publisher&&channel_id==connect_payment_channel(connect_review.publisher,connect_review.type,network)&&id==body.at("connectPayment").at("paymentId").string(),"invalid-publisher-channel");
+    if(is_pool)require(configured.at("kind").string()=="plugin","internal-pool-only");
+    const bool pool_operation=is_pool&&body.at("stage").string()=="state";
     auto owner = configured.at("owner").string();
     auto session_id = body.at("sessionId").kind == Value::Null ? "" : body.at("sessionId").string();
     policy.fresh(id);
-    auto budget = policy.quote(channel_id, session_id, owner, review.amount);
+    auto budget = policy.quote(channel_id, session_id, owner, review.amount,pool_operation);
+    const auto config_revision=configured.at("revision").integer();
+    const auto session_revision=session_id.empty()?0:policy.session_view(session_id).at("revision").integer();
     Value core = body;
     core.map.push_back({"amount", review.amount});
     require(commitment(profile, core) == hash, "invalid-commitment");
     Review r{op, channel_id, owner, {{"amount", std::to_string(review.amount)}, {"change", std::to_string(review.change)},
       {"fee", std::to_string(review.fee)}, {"singleLimit", std::to_string(configured.at("singleLimit").integer())},
-      {"used", std::to_string(budget.used)}, {"sessionLimit", std::to_string(budget.limit)},
-      {"singleExceeded", budget.single ? "true" : "false"}, {"sessionExceeded", budget.total ? "true" : "false"}}};
+      {"businessAmount",std::to_string(is_connect?connect_review.business:is_pool?pool_review.locked:review.amount-review.fee)},
+      {"singleExceeded", budget.single ? "true" : "false"}}};
     auto tx = parse_tx(raw);
+    if(is_connect){
+      r.facts.push_back({"app",connect_review.name+" ("+connect_review.app+")"});r.facts.push_back({"origin",connect_review.origin});
+      r.facts.push_back({"publisher",connect_review.publisher});r.facts.push_back({"paymentType",connect_review.type});r.facts.push_back({"purpose",connect_review.purpose});
+      r.facts.push_back({"ownership",connect_review.ownership});r.facts.push_back({"recipient",connect_review.label});
+    }
     if(is_pool) {
       if(is_authorization){auto authorization=inspect_bitfs_wire(obj({{"kind",Value(uint64_t(5))},{"document",body.at("authorization").at("document")}}),key.public_key());r.facts.push_back({"wireKind","5"});r.facts.insert(r.facts.end(),authorization.facts.begin(),authorization.facts.end());}
       r.facts.push_back({"poolFamily",family});r.facts.push_back({"kind",role});r.facts.push_back({"poolStage",body.at("stage").string()});
       r.facts.push_back({"cumulativePaid",std::to_string(pool_review.paid)});
       r.facts.push_back({"lockedAmount",std::to_string(pool_review.locked)});
       if(body.at("stage").string()=="fund")for(const auto &participant:pool_roles(tx.outputs[0].script,family))
-        r.facts.push_back({"recipientScript",p2pkh_output_address(own_script(participant))});
+        r.facts.push_back({"recipientScript",p2pkh_output_address(own_script(participant),network=="test")});
     }
     for (const auto &out : tx.outputs) {
-      auto description=is_p2pkh(out.script)?p2pkh_output_address(out.script):
+      auto description=is_p2pkh(out.script)?p2pkh_output_address(out.script,network=="test"):
         (is_pool && body.at("stage").string()=="fund"?std::string("multisig ")+family:std::string("script ")+to_hex(out.script));
       r.facts.push_back({out.script == own_script(key.public_key()) ? "changeScript" : "recipientScript",
         std::to_string(out.amount) + " sat " + description});
     }
-    r.can_raise = budget.total;
-    r.minimum_limit = add(budget.used, review.amount);
+    r.facts.push_back({"wallet",to_hex(key.public_key())});r.facts.push_back({"network",network});
+    r.facts.push_back({"mode",pool_operation?"operation":budget.prompt()?"manual":"automatic"});
+    r.can_raise = false;
     return {profile, core, std::make_unique<Action>(ui, r, budget.prompt(),
-      [this, id, channel_id, session_id, owner, review, hash, pool,is_authorization](const Approval &a) {
-        policy.reserve(id, channel_id, session_id, owner, review.amount, hash, true,
-                       a.state == Approval::Raise ? a.limit : 0, pool);
+      [this, id, channel_id, session_id, owner, review, hash, pool,is_authorization,pool_operation,config_revision,session_revision](const Approval &a) {
+        require(channel(channel_id).at("revision").integer()==config_revision,"revoked");
+        if(!session_id.empty())require(policy.session_view(session_id).at("revision").integer()==session_revision,"revoked");
+        require(a.state==Approval::Once,"invalid-approval");
+        policy.reserve(id, channel_id, session_id, owner, review.amount, hash, true, 0, pool,pool_operation);
         policy.executable(id);
         std::vector<Value> signatures;
         // 产生签名后的失败保留预占，重启时转成 unknown，不重新执行。
@@ -361,7 +385,7 @@ class PaymentService {
         }
         policy.signed_payment(id);
         return obj({{"signatures", Value::list(signatures)}, {"amount", review.amount}});
-      })};
+      },std::function<void(const Approval&)>{},false,pool_operation)};
   }
 };
 } // namespace rockey::vlp

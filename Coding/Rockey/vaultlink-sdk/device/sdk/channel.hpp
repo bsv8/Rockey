@@ -8,12 +8,14 @@ inline std::string channel_base64(const Bytes &bytes) {
   Bytes out(4*((bytes.size()+2)/3)+1);size_t n=0;
   check(mbedtls_base64_encode(out.data(),out.size(),&n,bytes.data(),bytes.size()));
   std::string s(out.begin(),out.begin()+n);for(char &c:s){if(c=='+')c='-';else if(c=='/')c='_';}
-  while(!s.empty()&&s.back()=='=')s.pop_back();return s;
+  while(!s.empty()&&s.back()=='='){s.pop_back();}
+  return s;
 }
 inline Bytes channel_unbase64(const std::string &text,size_t length=SIZE_MAX) {
   require(text.size()<=22000&&text.size()%4!=1,"invalid-base64");std::string padded=text;
   for(char &c:padded){require((c>='A'&&c<='Z')||(c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='-'||c=='_',"invalid-base64");if(c=='-')c='+';else if(c=='_')c='/';}
-  while(padded.size()%4)padded+='=';Bytes out(3*(padded.size()/4)+1);size_t n=0;
+  while(padded.size()%4){padded+='=';}
+  Bytes out(3*(padded.size()/4)+1);size_t n=0;
   check(mbedtls_base64_decode(out.data(),out.size(),&n,reinterpret_cast<const unsigned char *>(padded.data()),padded.size()));
   out.resize(n);require((length==SIZE_MAX||n==length)&&channel_base64(out)==text,"invalid-base64");return out;
 }

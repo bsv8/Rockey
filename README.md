@@ -1,5 +1,11 @@
 # Rockey
 
+### 2026-10-23 操作签名策略
+
+VLP `PaymentService` 的已知身份、Connect identity/intent、Channel 签名和非资金 BitFS wire 操作静默注册/执行，不调用确认页或自动支付声音通知。旧 manual 模式在迁移闸门允许普通业务后、首个 signing 请求前递增修订并持久迁移；staged import 不改写其 hash-bound bank，菜单不再提供这些操作的 manual 切换。完整对象/网络/渠道身份和修订校验仍执行；软件通用 digest 在硬件继续拒绝。配对、PIN、配置及导出/迁移的用户保护未纳入自动化。
+
+此变更有主机 C++/Controller 模拟证据，**尚无实体按键/屏幕/声音或刷机验收**；不代表花费审核、单笔设置和两种支付声音已全部完成。
+
 统一维护：`./rockey list`、`./rockey flash xxx.bin`、`./rockey clear-data`。工具集中在 [`tools/`](tools/README.md)，发布固件按时间归档到 [`releases/`](releases/README.md)。刷机只写固件区，清空只写钱包区，两者操作前均自动备份。
 
 Rockey 是面向 Keymaster 的 ESP32 / M5Stack 实验硬件 Vault：设备独立解锁、解析请求并通过三实体按钮授权，浏览器负责联网和数据搬运。

@@ -28,7 +28,7 @@ inline Review inspect_standard(const Bytes &raw,const std::vector<Bytes> &previo
     total_in=add(total_in,out.amount);r.digests.push_back(forkid_sighash(tx,i,out));
   }
   for(const auto &out:tx.outputs){total_out=add(total_out,out.amount);
-    if(standard_unlock(out.script,pub))r.change=add(r.change,out.amount);else r.amount=add(r.amount,out.amount);}
-  require(total_out<=total_in,"negative-fee");r.fee=total_in-total_out;return r;
+    if(out.script==own_script(pub))r.change=add(r.change,out.amount);}
+  require(total_out<=total_in,"negative-fee");r.amount=total_in-r.change;r.fee=total_in-total_out;return r;
 }
 }

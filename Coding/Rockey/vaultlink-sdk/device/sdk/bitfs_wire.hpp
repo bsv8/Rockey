@@ -20,14 +20,20 @@ inline BitfsWireReview inspect_bitfs_wire(const Value &body,const Bytes &own){
   require(r.kind==1||r.kind==5||r.kind==6||r.kind==8||r.kind==9||r.kind==10||r.kind==11,"unsupported-kind");
   auto raw=body.at("document").binary();auto parsed=decode(raw,16384,256);auto &v=bitfs_array(parsed);
   auto fact=[&](const std::string &name,const Value &value){r.facts.push_back({name,value.kind==Value::Binary?to_hex(value.binary()):value.kind==Value::Text?value.string():std::to_string(value.integer())});};
-  if(r.kind==1){bitfs_array(parsed,8);bitfs_bytes(v[0],32);bitfs_pub(v[1]);(void)v[2].integer();(void)v[3].integer();
+  if(r.kind==1){bitfs_array(parsed,10);bitfs_bytes(v[0],32);bitfs_pub(v[1]);(void)v[2].integer();(void)v[3].integer();
     auto size=v[4].integer(),expires=v[5].integer();require(size<=8192ULL*262144&&expires>0&&expires<=0x7fffffffffffffffULL,"invalid-document");
     if(size==0)require(v[0].binary()==sha256(Bytes{}),"invalid-document");
     auto arbiters=bitfs_child(v[6]);std::vector<Bytes> seen;for(const auto &a:arbiters.array){auto p=bitfs_pub(a);require(std::find(seen.begin(),seen.end(),p)==seen.end(),"duplicate-key");seen.push_back(p);}
     auto name=v[7].string();auto chars=json_utf16(name);require(!chars.empty()&&name!="."&&name!="..","invalid-filename");
     auto whitespace=[](uint16_t c){return c==32||c==0xa0||c==0x1680||(c>=0x2000&&c<=0x200a)||c==0x2028||c==0x2029||c==0x202f||c==0x205f||c==0x3000||c==0xfeff;};
     require(!whitespace(chars.front())&&!whitespace(chars.back()),"invalid-filename");for(auto c:chars)require(c!='/'&&c!='\\'&&c>31&&!(c>=127&&c<=159),"invalid-filename");
-    fact("seedHash",v[0]);fact("peer",v[1]);fact("seedPrice",v[2]);fact("blockPrice",v[3]);fact("expiresAt",v[5]);
+    auto max_blocks=v[8].integer();require(max_blocks>=1&&max_blocks<=64,"invalid-document");
+    const auto& media=v[9].string();require(!media.empty()&&media.size()<=255,"invalid-document");
+    auto slash=media.find('/');require(slash!=std::string::npos&&slash>0&&slash+1<media.size()&&media.find('/',slash+1)==std::string::npos,"invalid-document");
+    auto first=[](char c){return (c>='a'&&c<='z')||(c>='0'&&c<='9');};
+    require(first(media[0])&&first(media[slash+1]),"invalid-document");
+    for(size_t i=0;i<media.size();++i)if(i!=slash)require(first(media[i])||std::string("!#$&^_.+-").find(media[i])!=std::string::npos,"invalid-document");
+    fact("mediaType",v[9]);fact("maxBlocksPerBatch",v[8]);fact("seedHash",v[0]);fact("peer",v[1]);fact("seedPrice",v[2]);fact("blockPrice",v[3]);fact("expiresAt",v[5]);
   }else if(r.kind==5){auto a=bitfs_authorization(raw);fact("quoteId",a.array[0]);fact("refundTxId",a.array[1]);fact("paymentSequence",a.array[2]);fact("cumulativePaid",a.array[3]);fact("expiresAt",a.array[5]);
   }else if(r.kind==6){bitfs_array(parsed,1);bitfs_bytes(v[0],32,true);fact("authorizationId",v[0]);
   }else if(r.kind==8){bitfs_array(parsed,5);auto amount=v[0].integer();require(amount>0,"invalid-document");auto keys=pool_roles(bitfs_bytes(v[1],105),"bitfs");require(keys[1]==own,"wrong-key");
@@ -47,7 +53,7 @@ inline PoolReview inspect_bitfs_authorization(const Bytes &raw,const std::vector
   auto wire=inspect_bitfs_wire(obj({{"kind",Value(uint64_t(5))},{"document",document}}),own);auto authorization=bitfs_authorization(document);const auto &v=authorization.array;
   auto review=inspect_pool(raw,previous,own,"bitfs","state","payer"),baseline=inspect_pool(refund,previous,own,"bitfs","state","payer");
   auto target=parse_tx(raw),original=parse_tx(refund);
-  require(review.paid==v[3].integer()&&target.inputs[0].sequence==v[2].integer()&&target.outputs.size()==3&&target.outputs[2].amount==0&&target.locktime==0&&baseline.paid==0&&original.inputs[0].sequence<target.inputs[0].sequence&&sha256d(refund)==v[1].binary(),"invalid-authorization");
+  require(review.paid==v[3].integer()&&target.inputs[0].sequence==v[2].integer()&&target.outputs.size()==3&&target.outputs[2].amount==0&&target.locktime==original.locktime&&baseline.paid==0&&original.inputs[0].sequence<target.inputs[0].sequence&&sha256d(refund)==v[1].binary(),"invalid-authorization");
   review.review.digests={wire.digest};return review;
 }
 inline PoolReview inspect_bitfs_opening(const Bytes &raw,const Bytes &request,const Bytes &own){
